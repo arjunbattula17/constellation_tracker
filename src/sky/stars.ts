@@ -15,7 +15,7 @@ let cachedCatalog: CatalogStar[] | null = null;
 
 export function loadStarCatalog(): CatalogStar[] {
   if (cachedCatalog) return cachedCatalog;
-  const dataPath = path.join(__dirname, "..", "..", "data", "stars.json");
+  const dataPath = path.join(process.cwd(), "data", "stars.json");
   const raw = fs.readFileSync(dataPath, "utf8");
   cachedCatalog = JSON.parse(raw) as CatalogStar[];
   return cachedCatalog;

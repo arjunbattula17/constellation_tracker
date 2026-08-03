@@ -5,7 +5,7 @@ import { skySnapshotRouter } from "./routes/skySnapshot";
 export function createApp() {
   const app = express();
   app.use(skySnapshotRouter);
-  app.use(express.static(path.join(__dirname, "..", "public")));
+  app.use(express.static(path.join(process.cwd(), "public")));
   return app;
 }
 
