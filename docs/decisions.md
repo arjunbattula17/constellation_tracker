@@ -168,3 +168,34 @@
 - Any future change to the valid latitude/longitude range (e.g. if the spec's bounds ever changed) must be made in both `public/validate.js` and `src/sky/validate.ts`, or `test/validateParity.test.ts` fails immediately — the drift risk is caught at test time, not discovered live via mismatched client/server behavior.
 - Establishes the UMD-guarded, dual-consumption `public/*.js` module (browser `<script>` + Vitest `require()`) as the project's standing pattern for any future pure frontend logic that also needs direct unit tests (first used by `chart.js` in Phase 4, now confirmed with a second instance) — see also ADR-004.
 - No further follow-up: the parity test already covers the boundary cases (exact bounds, one unit past, `NaN`) that would most likely diverge between two hand-written implementations.
+
+## ADR-007: Correct the spec's Sun/Moon computation line rather than add Sun/Moon output
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Phase 5's final line-by-line EARS walkthrough (`docs/plan.md` Phase 5) found that `docs/spec.md`'s Sky Calculation section required the system to "compute the current altitude/azimuth of the Sun, Moon, naked-eye planets, and catalog stars," but Sun/Moon appeared nowhere else in the spec — not in MVP Scope's Output list (constellations, famous stars, naked-eye planets, curated galaxies only), not in User Flows, not in Data Model, and not in Out of Scope — and no code anywhere computed them (`grep` for `Astronomy.Body.Sun`/`Astronomy.Body.Moon` across `src/` found zero matches). The only other Sun/Moon mentions in the spec were in External Dependencies and Technical Decisions, both describing `astronomy-engine`'s general capabilities as a rationale for choosing that library, not a requirement on this app's output. The question: is this a real, unmet requirement to build now, or a spec/code mismatch to correct?
+
+**Alternatives Considered:**
+
+### Add Sun/Moon altitude/azimuth to the API response and chart (treat as a real gap)
+- Pros: Makes the EARS bullet literally true; Sun altitude could in principle inform a future "is this actually naked-eye visible given daylight" refinement (a separate, already-flagged simplification — see Phase 5 Inspection in `docs/learnings.md`).
+- Cons: Real scope growth this late in the build, with no corresponding Output/User-Flow/Data-Model spec text to define what "Sun/Moon in the output" would even look like (a dot on the chart? a separate field? included in "visible" filtering?); Out of Scope lists no such deferral, so if this were a deliberate MVP requirement it's unclear why the rest of the spec never mentions it at all.
+- Rejected: building undefined new scope from a single stray line, when every other part of the spec is silent on it, risks inventing a requirement that was never actually intended.
+
+### Correct the spec text to match the actual, consistently-scoped requirement (chosen)
+- The EARS bullet's mention of Sun/Moon reads as leftover drafting residue from justifying `astronomy-engine` (which does handle Sun/Moon math generically) rather than a deliberately scoped requirement — a genuine cut would normally show up in Out of Scope, and this one doesn't.
+- Pros: Brings the spec back into internal consistency (EARS requirements now match Output list, User Flows, and Data Model exactly); zero code risk; the user confirmed this reading directly when asked.
+- Cons: If Sun/Moon output turns out to be wanted later, it'll need a fresh spec pass (Output list, Data Model, possibly a new EARS bullet) rather than "already half-specified."
+
+### Leave the mismatch in place, just record it (no spec or code change)
+- Pros: Zero effort, no risk of misjudging intent.
+- Cons: Leaves the spec self-contradictory indefinitely — a future session reading the EARS section in isolation would reasonably conclude Sun/Moon output is required and either build unwanted scope or waste time re-investigating a question already answered this session.
+- Rejected: cheaper to fix the one line now than to leave a known contradiction for someone else to re-discover.
+
+**Decision:** Corrected `docs/spec.md`'s Sky Calculation EARS bullet to read "the system shall compute the current altitude/azimuth of naked-eye planets and catalog stars," dropping Sun/Moon — confirmed with the user this was spec drafting residue, not a deferred requirement, since every other part of the spec (Output, User Flows, Data Model, Out of Scope) is and remains silent on Sun/Moon.
+
+**Consequences:**
+- `docs/spec.md`'s Requirements section is now internally consistent with its own MVP Scope Output list — a future spec walkthrough won't re-flag this.
+- No code change; Sun/Moon remain entirely out of this app's computation and output, matching every other section of the spec.
+- If Sun/Moon output is ever wanted (e.g. for a future "not naked-eye visible in daylight" refinement), it needs a real spec addition (Output list, Data Model) — not a resurrection of this now-corrected line.
