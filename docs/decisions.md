@@ -199,3 +199,35 @@
 - `docs/spec.md`'s Requirements section is now internally consistent with its own MVP Scope Output list — a future spec walkthrough won't re-flag this.
 - No code change; Sun/Moon remain entirely out of this app's computation and output, matching every other section of the spec.
 - If Sun/Moon output is ever wanted (e.g. for a future "not naked-eye visible in daylight" refinement), it needs a real spec addition (Output list, Data Model) — not a resurrection of this now-corrected line.
+
+## ADR-008: Deploy to Render via a committed Blueprint, with a new `/health` endpoint
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** `docs/spec.md`'s Boundaries explicitly require asking before "changing the hosting/deployment target." At the `/ship` pre-launch gate, the user had no host chosen yet; asked directly, they picked Render. Render's Blueprint mechanism (`render.yaml`) reads service configuration from the repo and can call for a `healthCheckPath`, but this app had no health-check endpoint — the `/ship` checklist had already flagged this as a gap, not spec-required but a reasonable pre-launch addition once an actual host needing one was chosen.
+
+**Alternatives Considered:**
+
+### Configure the Render service entirely through the dashboard (no `render.yaml`)
+- Pros: No repo changes needed at all.
+- Cons: Configuration (build/start commands, `TRUST_PROXY`, health check path) lives only in Render's UI, invisible to anyone reading the repo, and has to be manually re-entered if the service is ever recreated or a second environment is added.
+- Rejected: repo-visible config is worth the one extra file, especially for `TRUST_PROXY`, where getting it wrong is a security-relevant mistake (see the trust-proxy fix earlier this phase) — a Blueprint makes the correct value ship with the code, not tribal dashboard knowledge.
+
+### Skip the health-check endpoint (use `/` or `/api/sky-snapshot` as the check instead)
+- Pros: Zero new code.
+- Cons: `/api/sky-snapshot` requires valid `lat`/`lon` query params to return 200 — an unparameterized health check would 400, which most platforms would misread as "unhealthy." `/` serves the static frontend, a weaker signal (proves static file serving works, not that the Express process/routing is actually alive).
+- Rejected: a dedicated, parameter-free endpoint is the correct signal and is cheap (one route, no dependencies).
+
+### `render.yaml` Blueprint + a new `GET /health` endpoint (chosen)
+- `render.yaml`: `type: web`, `runtime: node`, explicit `buildCommand`/`startCommand` (not relying on the `heroku-postbuild` convention, which is Heroku-specific and wouldn't fire on Render), `plan: free`, `healthCheckPath: /health`, and `envVars: [{key: TRUST_PROXY, value: "1"}]` — Render's edge is a single-hop proxy, matching the topology `TRUST_PROXY=1` is meant for (see the trust-proxy fix earlier this phase).
+- `GET /health` returns `200 {"status": "ok"}` with no required params, added to `src/server.ts` ahead of the router/static middleware, tested (`test/health.test.ts`) and verified live.
+- Pros: One-click "New > Blueprint" import in Render's dashboard with no manual field-filling; the security-relevant `TRUST_PROXY` value is correct by default for this specific host, not left to be configured correctly (or not) by hand later.
+- Cons: `render.yaml` is Render-specific syntax; if a different host is chosen later, this file becomes dead config (harmless, but worth knowing it's not portable across providers the way the `Procfile` is).
+
+**Decision:** Deploy to Render, configured via a committed `render.yaml` Blueprint, and add a dedicated `GET /health` endpoint as the health-check target — chosen after the user picked Render directly when asked (per the spec's "ask before changing deployment target" boundary), and because a repo-committed config file makes the security-relevant `TRUST_PROXY` value correct-by-default rather than a manual dashboard setting someone could get wrong or forget.
+
+**Consequences:**
+- Deploying now requires no manual Render dashboard configuration beyond connecting the repo via "New > Blueprint" — `render.yaml` supplies build/start commands, the free plan, the health check path, and the correct `TRUST_PROXY` value.
+- `/health` is a permanent, minimal, dependency-free endpoint; any future change to `src/server.ts`'s middleware order should keep it ahead of anything that could make it slow or fail (rate limiting, sky calculation) — it exists specifically to answer "is the process alive" cheaply.
+- If the project ever moves off Render, `render.yaml` stops being read (harmless dead file) but `Procfile`/`heroku-postbuild` and `/health` remain useful on most other Node-hosting platforms.
