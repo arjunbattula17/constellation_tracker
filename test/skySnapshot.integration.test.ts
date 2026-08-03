@@ -183,3 +183,65 @@ describe("rate-limit key source (trust proxy)", () => {
     expect(sawLimit).toBe(true);
   });
 });
+
+describe("rate-limit key source (Cloudflare)", () => {
+  const originalTrustCloudflare = process.env.TRUST_CLOUDFLARE;
+
+  afterEach(() => {
+    if (originalTrustCloudflare === undefined) delete process.env.TRUST_CLOUDFLARE;
+    else process.env.TRUST_CLOUDFLARE = originalTrustCloudflare;
+    vi.resetModules();
+  });
+
+  it("ignores a spoofed CF-Connecting-IP by default, closing the same class of bypass", async () => {
+    delete process.env.TRUST_CLOUDFLARE;
+    vi.resetModules();
+    const { createApp: createAppDefault } = await import("../src/server");
+    const app = createAppDefault();
+
+    let sawLimit = false;
+    for (let i = 0; i < 40; i++) {
+      const res = await request(app)
+        .get("/api/sky-snapshot")
+        .set("CF-Connecting-IP", `10.0.0.${i}`) // a different spoofed IP on every request
+        .query(VALID_QUERY);
+      if (res.status === 429) {
+        sawLimit = true;
+        break;
+      }
+    }
+    expect(sawLimit).toBe(true);
+  });
+
+  it("trusts CF-Connecting-IP when TRUST_CLOUDFLARE is explicitly set, ignoring X-Forwarded-For", async () => {
+    process.env.TRUST_CLOUDFLARE = "1";
+    vi.resetModules();
+    const { createApp: createAppWithCloudflare } = await import("../src/server");
+    const app = createAppWithCloudflare();
+
+    // Distinct CF-Connecting-IP values each get their own bucket, even with a
+    // constant (or absent) X-Forwarded-For — CF-Connecting-IP wins.
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app)
+        .get("/api/sky-snapshot")
+        .set("CF-Connecting-IP", `10.0.0.${i}`)
+        .set("X-Forwarded-For", "1.1.1.1")
+        .query(VALID_QUERY);
+      expect(res.status).not.toBe(429);
+    }
+
+    // ...but repeating the same CF-Connecting-IP still hits the limit.
+    let sawLimit = false;
+    for (let i = 0; i < 40; i++) {
+      const res = await request(app)
+        .get("/api/sky-snapshot")
+        .set("CF-Connecting-IP", "10.0.0.99")
+        .query(VALID_QUERY);
+      if (res.status === 429) {
+        sawLimit = true;
+        break;
+      }
+    }
+    expect(sawLimit).toBe(true);
+  });
+});

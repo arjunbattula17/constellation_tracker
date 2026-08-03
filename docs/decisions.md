@@ -321,3 +321,35 @@
 **Consequences:**
 - Any future timer-driven frontend logic in this codebase (another poll, a debounce, a delayed retry) should follow the same pattern: expose the tick/callback as a directly-callable top-level function and test it by direct invocation, not by trying to drive the wrapping `setInterval`/`setTimeout` through fake timers.
 - `document.hidden` defaults to `true` in a freshly-constructed `new JSDOM(...)` window — any test exercising "visible tab" behavior must explicitly set it to `false`; this is now demonstrated in `test/appGeolocation.test.ts`'s polling tests for future tests to copy.
+
+## ADR-012: Key the rate limiter on Cloudflare's `CF-Connecting-IP`, gated by `TRUST_CLOUDFLARE`
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** After the first live Render deploy, response headers showed `Server: cloudflare` and a `CF-RAY` id on every request — Render's public edge is Cloudflare, sitting in front of Render's own proxy. That's two hops, not the one `TRUST_PROXY=1` (ADR from the Phase 5 trust-proxy fix) assumed. Verified live with the same methodology as the original bug: 35 requests to the deployed `/api/sky-snapshot` each with a different spoofed `X-Forwarded-For` → 0 got 429'd (the limit is 30/min) — the exact bypass the Phase 5 fix was meant to close, reopened by a wrong hop-count assumption. Separately, three *unspoofed* consecutive requests showed `RateLimit-Remaining` jumping erratically (29 → 11 → 29), meaning the single-hop assumption was also picking an inconsistent "client IP" for legitimate traffic, not just failing to resist spoofing.
+
+**Alternatives Considered:**
+
+### Increase `TRUST_PROXY` to `2` (guess the new hop count)
+- Pros: Smallest possible change — one config value.
+- Cons: Express's numeric `trust proxy` mode trusts exactly that many hops of `X-Forwarded-For` from the right; Cloudflare's own edge network can itself introduce a variable number of internal hops depending on routing, so "2" is also a guess, not a verified constant — the same failure mode (wrong assumed topology) that caused this bug in the first place, just with a different wrong number.
+- Rejected: replacing one guessed hop-count with another doesn't fix the underlying problem — an assumed number, not a verified guarantee.
+
+### Key the limiter on Cloudflare's `CF-Connecting-IP` header, unconditionally
+- Pros: Cloudflare's edge always sets this header to the true connecting client IP and overwrites any client-supplied value of the same name when a request genuinely passes through Cloudflare — sidesteps hop-counting entirely.
+- Cons: That guarantee only holds when the request actually came through Cloudflare. Trusting the header unconditionally would let a client reaching the app *directly* (local dev, or a future non-Cloudflare host) simply set `CF-Connecting-IP` itself — reintroducing the identical spoofable-header bypass the Phase 5 ADR already fixed once, for a different header. Confirmed as a real risk, not hypothetical, by the same "trust proxy: 1 was a security-relevant default" lesson from that ADR.
+- Rejected: correct only for one specific deployment, wrong (and dangerous) as a default for any other.
+
+### `CF-Connecting-IP` gated behind a `TRUST_CLOUDFLARE` env var, defaulting to `false` (chosen)
+- `rateLimitKey(req)` (`src/routes/skySnapshot.ts`) checks `CF-Connecting-IP` only when `TRUST_CLOUDFLARE === "1"`, falling back to the existing `TRUST_PROXY`-driven IP otherwise — the exact same safe-by-default shape as the Phase 5 `TRUST_PROXY` fix, applied to a second, independently-spoofable header.
+- `render.yaml` sets `TRUST_CLOUDFLARE=1` (true for this specific deployment, verified live) alongside the existing `TRUST_PROXY=1`; any other host must opt in explicitly after confirming its own topology, exactly like `TRUST_PROXY`.
+- Pros: Fixes the actual verified topology without guessing a hop count; doesn't introduce a new default-unsafe trust of a client-controllable-looking header; regression-tested both directions (`test/skySnapshot.integration.test.ts`, "rate-limit key source (Cloudflare)") — confirmed the *unconditional* version of this fix actually fails the default-safe test before gating it, mirroring the verification discipline from the original `TRUST_PROXY` fix.
+- Cons: Two independent trust flags (`TRUST_PROXY`, `TRUST_CLOUDFLARE`) to keep straight for future deployment targets — mitigated by both being documented in `README.md`'s Configuration section with the same "leave unset unless you've confirmed the topology" framing.
+
+**Decision:** Key `express-rate-limit` on Cloudflare's `CF-Connecting-IP` header when `TRUST_CLOUDFLARE=1` is explicitly set (true for the Render deployment, since Render's public edge is confirmed to be Cloudflare), falling back to the existing `TRUST_PROXY`-driven IP otherwise — because the real topology has two proxy hops, not the one hop `TRUST_PROXY=1` alone can correctly resolve, and because unconditionally trusting `CF-Connecting-IP` would repeat the exact "trust a spoofable-looking header without confirming the topology" mistake ADR-005/the Phase 5 fix already exists to prevent.
+
+**Consequences:**
+- The live deployment's rate limiting is now verified correct against its actual network topology, not an assumed one — re-run the same live spoofed-header test after any future change to Render's edge configuration or a move to a different host.
+- Any future deployment target sitting behind Cloudflare (or a similar edge network with its own trusted "real IP" header) should follow the same pattern: a dedicated, explicitly-opt-in trust flag per trusted header source, never a header trusted unconditionally just because it looks authoritative.
+- `docs/learnings.md`'s "Post-deploy live security check" entry records the generalizable lesson: a fix verified correct in local tests can still be wrong against the real deployment if the assumed network topology doesn't match reality — check actual response headers from the live deployment rather than trusting host documentation or general research alone.

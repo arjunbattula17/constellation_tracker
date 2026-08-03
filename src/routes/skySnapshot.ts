@@ -1,13 +1,33 @@
 import { Router, Request, Response } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { validateCoordinates } from "../sky/validate";
 import { computeSkySnapshot } from "../sky/snapshot";
+
+// Render's public edge sits behind Cloudflare in front of Render's own proxy —
+// two hops, not one — so a fixed TRUST_PROXY hop count can't reliably recover
+// the real client IP from X-Forwarded-For (confirmed live: rate-limit buckets
+// were inconsistent across consecutive requests from a single client). Cloudflare's
+// edge always sets CF-Connecting-IP to the true connecting client IP and strips
+// any client-supplied value of the same name — but only when the request has
+// actually passed through Cloudflare. Trusting that header unconditionally would
+// just be the same "trust proxy: 1" mistake again (see docs/learnings.md), since
+// a client reaching the app directly (local dev, or a future non-Cloudflare host)
+// could set CF-Connecting-IP itself. Gate it behind an explicit TRUST_CLOUDFLARE
+// opt-in, defaulting to false, exactly like TRUST_PROXY.
+function rateLimitKey(req: Request): string {
+  if (process.env.TRUST_CLOUDFLARE === "1") {
+    const cfConnectingIp = req.headers["cf-connecting-ip"];
+    if (typeof cfConnectingIp === "string" && cfConnectingIp) return cfConnectingIp;
+  }
+  return ipKeyGenerator(req.ip ?? "");
+}
 
 const skySnapshotLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: rateLimitKey,
   message: { error: "too many requests, try again shortly" },
 });
 

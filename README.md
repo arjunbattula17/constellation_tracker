@@ -39,18 +39,32 @@ convention for a single-process Node app.
 
 `render.yaml` at the repo root is a [Render Blueprint](https://render.com/docs/blueprint-spec):
 in the Render dashboard, choose **New > Blueprint**, connect this repo, and Render reads
-`render.yaml` to configure the build command, start command, health check path, and
-`TRUST_PROXY=1` (correct for Render's single-hop edge proxy) automatically — no manual
-service configuration needed. `PORT` is injected by Render itself.
+`render.yaml` to configure the build command, start command, health check path, and env
+vars automatically — no manual service configuration needed. `PORT` is injected by Render
+itself.
+
+Render's public traffic actually passes through **two** proxy hops (Cloudflare, then
+Render's own edge) before reaching the app — confirmed live, not assumed (see
+`docs/learnings.md`). A single `TRUST_PROXY` hop count can't reliably recover the real
+client IP through two hops, so the rate limiter instead keys on Cloudflare's
+`CF-Connecting-IP` header when `TRUST_CLOUDFLARE=1` is set (which `render.yaml` does) —
+see Configuration below.
 
 ## Configuration
 
 - `PORT` — port to listen on (defaults to `3000`; Render and most hosts set this for you).
-- `TRUST_PROXY` — number of reverse-proxy hops in front of the app (e.g. `1` for Render,
-  Heroku, or a single load balancer). **Leave unset if the app is directly reachable** —
-  setting this without a real proxy in front lets a client bypass rate limiting by spoofing
-  `X-Forwarded-For`. Only set it when you've confirmed your host puts a trusted proxy
-  between the internet and this process.
+- `TRUST_PROXY` — number of reverse-proxy hops in front of the app (e.g. `1` for a single
+  load balancer). **Leave unset if the app is directly reachable** — setting this without
+  a real proxy in front lets a client bypass rate limiting by spoofing `X-Forwarded-For`.
+  Only set it when you've confirmed your host puts a trusted proxy between the internet
+  and this process.
+- `TRUST_CLOUDFLARE` — set to `1` only when you've confirmed Cloudflare is genuinely in
+  front of this app (true for Render — see above). Makes the rate limiter key on
+  Cloudflare's `CF-Connecting-IP` header instead of `X-Forwarded-For`/`TRUST_PROXY`, since
+  Cloudflare's edge always sets that header to the true client IP and strips any
+  client-supplied value of the same name. **Leave unset otherwise** — trusting
+  `CF-Connecting-IP` without a real Cloudflare edge in front lets a client set that header
+  themselves and bypass rate limiting the same way an unwarranted `TRUST_PROXY` would.
 
 ## Testing
 
