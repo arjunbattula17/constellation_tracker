@@ -22,8 +22,12 @@ describe("GET /api/sky-snapshot", () => {
     expect(Array.isArray(res.body.stars)).toBe(true);
     expect(Array.isArray(res.body.planets)).toBe(true);
     expect(Array.isArray(res.body.galaxies)).toBe(true);
-    // TODO: update once constellation determination is implemented.
-    expect(res.body.constellations).toEqual([]);
+    expect(Array.isArray(res.body.constellations)).toBe(true);
+    expect(res.body.constellations.length).toBeGreaterThan(0);
+    for (const star of res.body.stars) {
+      expect(typeof star.constellation).toBe("string");
+      expect(star.constellation.length).toBeGreaterThan(0);
+    }
   });
 
   it("rejects an out-of-range latitude with 400", async () => {

@@ -22,7 +22,7 @@ function renderList(id, items, format) {
 
 function renderSnapshot(snapshot) {
   renderList("constellations-list", snapshot.constellations, (name) => name);
-  renderList("stars-list", snapshot.stars, (s) => `${s.name} (alt ${s.altitude.toFixed(1)}°, az ${s.azimuth.toFixed(1)}°)`);
+  renderList("stars-list", snapshot.stars, (s) => `${s.name} — ${s.constellation} (alt ${s.altitude.toFixed(1)}°, az ${s.azimuth.toFixed(1)}°)`);
   renderList("planets-list", snapshot.planets, (p) => `${p.name} (alt ${p.altitude.toFixed(1)}°, az ${p.azimuth.toFixed(1)}°)`);
   renderList("galaxies-list", snapshot.galaxies, (g) => `${g.name} (alt ${g.altitude.toFixed(1)}°, az ${g.azimuth.toFixed(1)}°)`);
   statusEl.hidden = true;

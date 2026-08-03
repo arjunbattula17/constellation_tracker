@@ -4,9 +4,13 @@ export interface VisibleObject {
   azimuth: number;
 }
 
+export interface FamousStar extends VisibleObject {
+  constellation: string;
+}
+
 export interface SkySnapshot {
   constellations: string[];
-  stars: VisibleObject[];
+  stars: FamousStar[];
   planets: VisibleObject[];
   galaxies: VisibleObject[];
 }
