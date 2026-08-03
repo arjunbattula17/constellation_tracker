@@ -37,6 +37,7 @@ export function computeVisibleFamousStars(
         altitude: hor.altitude,
         azimuth: hor.azimuth,
         constellation: classifyStarConstellation(star.raHours, star.decDeg),
+        magnitude: star.mag,
       });
     }
   }

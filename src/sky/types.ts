@@ -6,6 +6,7 @@ export interface VisibleObject {
 
 export interface FamousStar extends VisibleObject {
   constellation: string;
+  magnitude: number;
 }
 
 export interface SkySnapshot {

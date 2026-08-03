@@ -57,3 +57,29 @@
 - Visible-constellation output now matches the 0.5° reference across the swept input space, honoring the spec's "precise" requirement and ADR-001's correctness-over-speed choice without a 16× cost.
 - Guards the choice: `test/constellations.test.ts` asserts a near-horizon constellation (Lepus, lat 40 / lon −60) that a pure-2° grid misses; `docs/plan.md` Phase 2 wording is corrected from "proven sufficient" to reflect the sweep.
 - Residual limitation: 0.5° is the verification reference, not ground truth. If sub-0.5° near-horizon fidelity ever matters, the exact fix is the polygon-edge/horizon intersection deferred in ADR-001 — not a finer uniform grid.
+
+## ADR-003: Classify stars via astronomy-engine, not the HYG catalog's own `con` field
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Phase 2 needed to tag each famous star with its constellation. `data/stars.json` (built from the HYG database in Phase 1) already carries a `con` field per star — a 3-letter constellation abbreviation populated straight from the raw CSV, HYG's own precomputed classification. Phase 2 separately needed `Astronomy.Constellation(ra, dec)` (astronomy-engine's IAU-88 boundary data) to grid-sample the visible-constellation list (ADR-001, ADR-002). The question: classify stars from the existing `con` field (already there, no extra computation), or recompute via `Astronomy.Constellation` for every star?
+
+**Alternatives Considered:**
+
+### Use HYG's own `con` field directly
+- Pros: Zero extra computation — the value is already sitting in the catalog data; no extra function call per star.
+- Cons: HYG's constellation assignment is a separate calculation from astronomy-engine's own IAU-88 boundary lookup (possibly different source data, epoch, or edge-case handling). A star could be tagged into a constellation that astronomy-engine's grid-sample doesn't currently list as visible for that observer/time — a "famous star in Foo" showing up when "Foo" isn't in the visible-constellations list. Also doesn't match the spec's wording (§Sky Calculation: "classify each catalog star's constellation membership using its right ascension/declination against the IAU-88 boundaries" — implying the same boundary source used elsewhere).
+- Rejected: risks a visible inconsistency between two parts of the same API response, and doesn't match the spec's stated method.
+
+### Recompute via `Astronomy.Constellation(raHours, decDeg)` per star (chosen)
+- Pros: Single source of truth — a star's tagged constellation and the grid-sampled visible-constellation list always agree, since both go through the same boundary lookup (plus the same `resolveConstellationName` misspelling correction). Matches the spec's wording exactly.
+- Cons: One extra function call per named star (a few hundred, not the full ~8,920-row catalog, since only stars with a `proper` name are output) — negligible next to the constellation grid-sample, which already dominates per-request cost (ADR-002).
+- Rejected: no — this is the chosen option.
+
+**Decision:** Classify every famous star's constellation via `Astronomy.Constellation(raHours, decDeg)` (`src/sky/constellations.ts`'s `classifyStarConstellation`), not via the HYG catalog's precomputed `con` field, so stars and the visible-constellation list share one boundary source of truth.
+
+**Consequences:**
+- Guarantees internal consistency: whenever a famous star is above the horizon, its tagged constellation is guaranteed to appear in that same request's visible-constellations list.
+- The HYG `con` field remains in `data/stars.json` and the `CatalogStar` type but is unused by the running app — noted in `docs/learnings.md` so a future session doesn't "simplify" by switching to it without re-deriving this reasoning.
+- No follow-up work: negligible performance cost given current catalog size and request-time budget.

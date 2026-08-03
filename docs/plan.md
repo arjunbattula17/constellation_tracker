@@ -41,16 +41,25 @@ Date: 2026-08-02
 ## Phase 3: Real Location Input
 **Build:** Add a "Use my location" button using the browser Geolocation API, wired to Phase 1's parameterized fetch function. On denial/unavailability, reveal a manual latitude/longitude form with an inline explanatory message. Validate manual lat/long ranges client-side before submitting, showing an inline error on failure without sending a request. Page load continues to show the Phase 1 default/demo snapshot first, unaffected.
 **Verify:** Click "Use my location," grant permission, and confirm the snapshot updates to the real location. Deny permission and confirm the fallback form + message appear. Submit an out-of-range manual coordinate and confirm an inline error with no request sent. Submit a valid manual coordinate and confirm the snapshot updates correctly.
-**Test:** Unit tests for client-side lat/long range validation. Geolocation grant/deny flows are not meaningfully unit-testable — documented as a manual browser verification checklist instead.
+
+Manual verification checklist (real native permission-prompt UX only — see Test correction below for what's now automated):
+1. `npm run dev`, open `http://localhost:3000` in a real desktop browser (Chrome MCP can't reach `localhost` on this machine).
+2. Click "Use my location," grant permission → snapshot updates to plausible current-location objects, location label text updates.
+3. Reload, click "Use my location," deny permission → fallback appears with the exact message, original demo snapshot stays on screen until a new request is made.
+4. Manual form: submit an out-of-range value (e.g. latitude `200`) → inline error shown, DevTools Network tab shows no new request.
+5. Submit a valid coordinate (e.g. Tokyo, `35.6762, 139.6503`) → snapshot updates to plausible Tokyo-visible objects, error clears.
+6. Confirm page load still shows the Phase 1 demo snapshot first, unaffected.
+
+**Test:** Unit tests for client-side lat/long range validation (`test/clientValidate.test.ts`). **Correction (Phase 3 build):** the plan's original claim that "geolocation grant/deny flows are not meaningfully unit-testable" was wrong — `jsdom` (already a devDependency) has no `navigator.geolocation` at all, making the "unavailable" branch trivially and faithfully testable, and the grant/deny branches are testable by stubbing `navigator.geolocation.getCurrentPosition` and asserting the resulting DOM/fetch wiring. `test/appGeolocation.test.ts` (jsdom environment) covers unavailable/denied/granted geolocation and manual-form valid/invalid submission. Only the real native permission-prompt UX (an actual OS/browser dialog) remains manual — covered by the checklist above.
 **Done when:** A real user can get their own location's sky snapshot via geolocation or manual entry, with correct fallback and validation behavior.
-**Status:** [ ] Not started
+**Status:** [x] Complete — 2026-08-03
 
 ## Phase 4: Visual Mini Chart
 **Build:** Replace the plain list rendering of stars/planets/galaxies with a horizontal strip/mini chart (SVG or Canvas), plotting labeled dots positioned using the alt/az values already returned by the API. Constellation names continue to be shown as a text list alongside the chart (no constellation line art, per the spec's simplified visual choice).
 **Verify:** Visually confirm the chart renders correctly labeled, positioned dots that stay consistent with the underlying API data across the default, geolocation, and manual-entry input paths from Phases 1-3.
 **Test:** Pure-function unit test for the dot-positioning logic given a fixed API response fixture (no browser required).
 **Done when:** The chart view fully replaces the plain-list-only view across all input paths, with correctly labeled and positioned objects.
-**Status:** [ ] Not started
+**Status:** [x] Complete — 2026-08-03, fix-round applied 2026-08-03 (initial build labeled every dot, causing ~220 overlapping labels on a real sky; fixed by capping to the 10 brightest stars by magnitude, always-labeling planets/galaxies, adding hover `<title>`s on every dot, and fixing edge-label clipping — see `docs/learnings.md` "Phase 4 fix-now follow-up". Verified live against Phase 3's now-shipped geolocation/manual-entry paths via the shared `renderSnapshot` re-render path, no rework needed there.)
 
 ## Phase 5: Polish & Harden
 **Build:** Explicit "nothing visible right now" state at both the API level (empty result) and the chart/constellation-list rendering. Friendly frontend messages for 429 (rate limited) and 500 (calculation failure) responses matching the spec's wording. Audit server code/logs to confirm user location coordinates are never logged or persisted. Basic deployment configuration for a single-process host (static frontend + API together) plus a README with run instructions. Final line-by-line walkthrough of spec.md's EARS requirements against the running app, fixing any gaps found. Carried over from Phase 1 review: configure `app.set('trust proxy', ...)` so `express-rate-limit` keys on the real client IP instead of a shared proxy/load-balancer IP once deployed behind one; add `helmet` for baseline security headers (public-facing per spec, currently absent).
