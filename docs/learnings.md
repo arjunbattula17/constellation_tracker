@@ -1,0 +1,8 @@
+# Learnings
+<!-- Accumulated across sessions during /construct and /inspect -->
+
+## Phase 1: Vertical Slice — Sky Data Pipeline — 2026-08-02
+- The HYG star database (`hygdata_v41.csv`) includes the Sun itself as row `id=0` with `proper="Sol"`. Must be explicitly filtered out in `scripts/build-star-catalog.js`, or it shows up as a "famous star" in the output (caught live: it appeared at ~38° altitude during daytime testing).
+- TypeScript 7 (installed as `^7.0.2`) removed `moduleResolution: "node"`/`"node10"` entirely. `moduleResolution: "node16"` requires `module: "node16"` too, and then even a CommonJS project must use explicit `.js` extensions on relative dynamic `import()` calls. The combo that avoids all of this for a plain CommonJS/tsx project is `module: "commonjs"` + `moduleResolution: "bundler"`.
+- `astronomy-engine`'s `Horizon(date, observer, ra, dec)` nominally wants "of-date" equatorial coordinates, but feeding it J2000 catalog RA/Dec directly for fixed background stars (no precession correction) is an accepted simplification here — precession drift is only ~0.4° over 26 years (J2000 → 2026), negligible except for objects sitting almost exactly on the horizon.
+- Chrome MCP cannot reach `localhost` on this machine (confirmed again this session) — verified the frontend headlessly instead: load `public/index.html` in jsdom, `dom.window.eval()` the real `app.js`, and point `window.fetch` at the real running Node server. Node's built-in `fetch` requires an **absolute** URL — `window.fetch("/api/...")` throws unless wrapped as `(url, opts) => fetch(new URL(url, "http://localhost:3000/"), opts)`, since Node has no browser `window.location` to resolve relative URLs against.

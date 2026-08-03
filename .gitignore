@@ -1,0 +1,6 @@
+node_modules/
+dist/
+scripts/hygdata_v41.csv
+*.tmp.js
+/tmp/
+.hook-state/
