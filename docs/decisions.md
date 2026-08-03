@@ -110,3 +110,29 @@
 - `chart.js` is now the single home for pure chart-layout math (`computeChartLayout`, `azimuthToX`, and the label-placement functions); `app.js` owns DOM construction and event wiring only — future chart features (e.g. a legend layout algorithm) should follow the same split.
 - `test/chart.test.ts` unit-tests the label functions directly (selection cutoff, gap-preserving nudge, width-clamp on a dense cluster); `test/chartRender.test.ts` keeps an integration-level jsdom check as a backstop, so the bug class (bounds violation) is now caught at both levels.
 - Accepted tradeoff: in a cluster too dense for the chart width, labels overlap each other rather than clip off-canvas — no further follow-up planned unless a future chart layout needs true collision-free placement (would require reducing label count or font size, not just repositioning).
+
+## ADR-005: Request-id guard against stale-render races in `fetchSkySnapshot`
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Phase 3 added a second and third caller of `fetchSkySnapshot` (geolocation success and manual-entry submit) alongside Phase 1's page-load default fetch. The function is called fire-and-forget (not awaited by its callers) and is `async`, so two overlapping calls — e.g. the automatic demo-load fetch still in flight when a user immediately clicks "Use my location" — can have their underlying `fetch` promises resolve in either order. Reproduced live: without a guard, a slower, older response could resolve after a faster, newer one and overwrite the just-rendered current-location snapshot with stale demo data [sourced: `docs/learnings.md` "Phase 3 hardening" 2026-08-03].
+
+**Alternatives Considered:**
+
+### `AbortController` — cancel the in-flight request when a newer one starts
+- Pros: Stops wasted network/server work for a superseded request, not just its rendered effect.
+- Cons: More moving parts (store and abort a controller per call, handle the resulting `AbortError` in the `catch` path without surfacing it as a real failure) for a benefit — saving one in-flight demo-load fetch — that doesn't matter at this app's request volume.
+- Rejected: added complexity not justified by the actual cost being solved.
+
+### Module-scoped `latestRequestId` counter (chosen)
+- Each call captures `++latestRequestId` at entry (`public/app.js:174`); after both the success and error paths' `await`, it checks `requestId !== latestRequestId` and bails before touching `statusEl`/`renderSnapshot` if a newer call has since superseded it (`public/app.js:185,192`).
+- Pros: Minimal — a single counter and two guard checks; correctly discards a stale response by recency regardless of resolve order; the property being protected (what's currently rendered) is inherently "last request wins," not an accumulation that needs full serialization.
+- Cons: Doesn't cancel the superseded request's underlying network call — it still completes, just its result is discarded. Only guards this one function; a future caller of `fetchSkySnapshot` that skips the pattern (e.g. by reading `statusEl` directly instead of going through this function) would reintroduce the race.
+
+**Decision:** Guard `fetchSkySnapshot` with a module-scoped `latestRequestId` counter that each call snapshots at entry and re-checks after each `await`, discarding its own result if a newer call has since started — because the rendered snapshot only ever needs to reflect the most recently *requested* location, not first-to-resolve, and a counter is the simplest mechanism that gives that guarantee.
+
+**Consequences:**
+- Overlapping `fetchSkySnapshot` calls (demo load vs. geolocation vs. manual entry, in any resolve order) now always leave the UI showing the result of whichever call started last.
+- Guarded by a jsdom test using manually-resolved fetch promises to force the exact resolve-out-of-order sequence (a standard `mockResolvedValue` resolves everything immediately and can't reproduce the race) — see `docs/learnings.md` "Phase 3 hardening."
+- Follow-up: any new caller of `fetchSkySnapshot` gets this protection for free; any code that renders a snapshot *without* going through `fetchSkySnapshot` would not, and should route through it instead of duplicating the guard.
