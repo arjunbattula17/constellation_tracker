@@ -105,4 +105,26 @@ describe("renderChart smoke test", () => {
       expect(x).toBeLessThanOrEqual(width);
     }
   });
+
+  it("exposes a screen-reader-only text list of every chart item, since the chart itself is visual-only", async () => {
+    const snapshot = buildLargeSnapshot(3);
+    const dom = setup(snapshot);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    const srList = doc.querySelector("#sky-chart .sr-only");
+    expect(srList).not.toBeNull();
+
+    const items = Array.from(srList!.querySelectorAll("li")).map((li) => li.textContent);
+    expect(items).toEqual([
+      "Star: Star 0",
+      "Star: Star 1",
+      "Star: Star 2",
+      "Planet: Test Planet",
+      "Galaxy: Test Galaxy",
+    ]);
+  });
 });

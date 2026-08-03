@@ -35,7 +35,7 @@ function renderList(id, items, format) {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const TYPE_COLORS = { star: "#c9a227", planet: "#4682b4", galaxy: "#8a2be2" };
+const TYPE_COLORS = { star: "#c9a227", planet: "#4682b4", galaxy: "#c2185b" };
 const COMPASS_TICKS = [
   { azimuth: 0, label: "N" },
   { azimuth: 90, label: "E" },
@@ -44,9 +44,7 @@ const COMPASS_TICKS = [
   { azimuth: 360, label: "N" },
 ];
 const CHART_PADDING = 10;
-const LABEL_LIMIT = 10;
-const EDGE_MARGIN = 15;
-const MIN_LABEL_GAP = 10;
+const BELOW_LABEL_OFFSET = 6; // mirrors the -6 "above" offset so below-labels don't reach into the tick-label row
 
 function svgEl(tag, attrs) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -54,62 +52,6 @@ function svgEl(tag, attrs) {
     el.setAttribute(key, attrs[key]);
   }
   return el;
-}
-
-function anchorForX(x, width) {
-  if (x < EDGE_MARGIN) return "start";
-  if (x > width - EDGE_MARGIN) return "end";
-  return "middle";
-}
-
-// Labels the ~LABEL_LIMIT brightest (lowest-magnitude) stars, plus every
-// planet/galaxy (they carry no magnitude, so always label) — avoids
-// dozens of overlapping labels when many faint catalog stars are visible.
-function selectLabeledItems(items) {
-  const labeled = new Set();
-  const rankable = items
-    .filter((item) => item.magnitude !== null && item.magnitude !== undefined)
-    .slice()
-    .sort((a, b) => a.magnitude - b.magnitude);
-  for (const item of rankable.slice(0, LABEL_LIMIT)) {
-    labeled.add(item);
-  }
-  for (const item of items) {
-    if (item.magnitude === null || item.magnitude === undefined) {
-      labeled.add(item);
-    }
-  }
-  return labeled;
-}
-
-// Lays out only the labeled items, ordered by azimuth so neighboring labels
-// alternate above/below deterministically (not by their position in the
-// unrelated star/planet/galaxy item list), and nudges apart any pair whose
-// x-positions are close enough to collide.
-//
-// Two passes: first push right to separate overlapping labels, then pull
-// back within [width] so a cluster of nudges can't march labels off the
-// right edge of the chart. When a cluster is too dense to fit the gap and
-// the bound at once, the bound wins and labels overlap rather than clip.
-function layoutLabelPositions(labeledItems, width) {
-  const sorted = labeledItems.slice().sort((a, b) => a.x - b.x);
-  const positions = sorted.map((item) => item.x);
-
-  for (let i = 1; i < positions.length; i++) {
-    positions[i] = Math.max(positions[i], positions[i - 1] + MIN_LABEL_GAP);
-  }
-
-  const maxX = width - EDGE_MARGIN;
-  for (let i = positions.length - 1; i >= 0; i--) {
-    const cap = i === positions.length - 1 ? maxX : Math.min(maxX, positions[i + 1] - MIN_LABEL_GAP);
-    positions[i] = Math.min(positions[i], cap);
-  }
-
-  const result = new Map();
-  sorted.forEach((item, index) => {
-    result.set(item, { x: positions[index], above: index % 2 === 0 });
-  });
-  return result;
 }
 
 function renderChart(snapshot) {
@@ -165,7 +107,7 @@ function renderChart(snapshot) {
 
     const position = labelPositions.get(item);
     if (position) {
-      const labelY = position.above ? y - 6 : y + 12;
+      const labelY = position.above ? y - 6 : y + BELOW_LABEL_OFFSET;
       const label = svgEl("text", {
         x: position.x,
         y: labelY,
@@ -179,6 +121,29 @@ function renderChart(snapshot) {
 
   container.appendChild(svg);
   container.appendChild(buildChartLegend());
+  container.appendChild(buildChartSrList(items));
+}
+
+// The chart is visual-only (dot positions + hover <title>s), so screen-reader
+// users get a plain-text enumeration of the same items instead.
+function buildChartSrList(items) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "sr-only";
+
+  const heading = document.createElement("p");
+  heading.textContent = "Currently visible in the sky chart:";
+  wrapper.appendChild(heading);
+
+  const ul = document.createElement("ul");
+  for (const item of items) {
+    const li = document.createElement("li");
+    const type = item.type.charAt(0).toUpperCase() + item.type.slice(1);
+    li.textContent = `${type}: ${item.name}`;
+    ul.appendChild(li);
+  }
+  wrapper.appendChild(ul);
+
+  return wrapper;
 }
 
 function buildChartLegend() {
