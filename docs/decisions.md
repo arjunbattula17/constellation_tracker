@@ -136,3 +136,35 @@
 - Overlapping `fetchSkySnapshot` calls (demo load vs. geolocation vs. manual entry, in any resolve order) now always leave the UI showing the result of whichever call started last.
 - Guarded by a jsdom test using manually-resolved fetch promises to force the exact resolve-out-of-order sequence (a standard `mockResolvedValue` resolves everything immediately and can't reproduce the race) — see `docs/learnings.md` "Phase 3 hardening."
 - Follow-up: any new caller of `fetchSkySnapshot` gets this protection for free; any code that renders a snapshot *without* going through `fetchSkySnapshot` would not, and should route through it instead of duplicating the guard.
+
+## ADR-006: Duplicate client/server coordinate validation, guarded by a parity test — not a shared module
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Phase 3 needed the manual-entry form to reject an out-of-range latitude/longitude client-side, with no request sent (per `docs/plan.md` Phase 3). The server already validates the same ranges in `src/sky/validate.ts` (`GET /api/sky-snapshot`'s 400 path). The frontend (`public/app.js` etc.) is plain `<script>` tags with no bundler and no ES modules (established in Phase 1/4 — see ADR-004's note on `chart.js`'s UMD guard), so `src/sky/validate.ts` can't be `import`ed directly into the browser. The question was whether to keep one validation implementation (accepting some form of build step or runtime sharing) or accept two independent ones.
+
+**Alternatives Considered:**
+
+### Add a build/bundling step so the browser can import `src/sky/validate.ts` directly
+- Pros: One implementation, zero duplication risk.
+- Cons: The project has deliberately stayed bundler-less for the frontend through Phases 1-4 (plain `<script>` tags, `tsx watch` only for the server); introducing a bundler solely to share one small range check is a disproportionate build-system change for this project's "days, not months" scope.
+- Rejected: cost far exceeds the problem being solved.
+
+### Client validates nothing; only the server's 400 response surfaces the error
+- Pros: Zero duplication — only one implementation exists.
+- Cons: Directly contradicts the spec/plan requirement that an out-of-range manual coordinate shows an inline error with **no request sent** — a round trip for a check this cheap is also a worse UX (a visible delay for feedback that could be instant).
+- Rejected: fails an explicit plan requirement.
+
+### Two independent implementations (`public/validate.js` client-side, `src/sky/validate.ts` server-side), guarded by a parity test (chosen)
+- `public/validate.js` re-implements the same range check behind the same UMD guard pattern already used by `chart.js` (`if (typeof module !== "undefined" && module.exports) module.exports = {...}`), so it's a plain `<script>` for the browser and `require()`-able from Vitest.
+- `test/validateParity.test.ts` imports both `validateCoordinates` implementations and asserts they agree across a shared table of boundary/invalid inputs (in-range, exactly on each boundary, one unit past each boundary, `NaN` for each axis).
+- Pros: No build-system change; instant client-side feedback with no request; the parity test converts "two implementations could silently drift" from a latent risk into a caught-at-CI failure the moment either side's range check changes without the other.
+- Cons: A genuine maintenance cost — any future change to the valid coordinate range must be applied in both files, and would only be caught by remembering to update the parity test's expectations too (not automatically enforced beyond "both files must agree with each other," not "both files must be correct").
+
+**Decision:** Keep `public/validate.js` and `src/sky/validate.ts` as two independent implementations of the same coordinate-range check, sharing only the UMD dual-consumption pattern already established for `chart.js` (not the logic itself), and guard against them drifting apart with `test/validateParity.test.ts` running both against a shared input table — because the project's bundler-less frontend makes true code-sharing disproportionately expensive for one small pure function, and a parity test converts the resulting duplication risk into an explicit, tested contract instead of an implicit assumption.
+
+**Consequences:**
+- Any future change to the valid latitude/longitude range (e.g. if the spec's bounds ever changed) must be made in both `public/validate.js` and `src/sky/validate.ts`, or `test/validateParity.test.ts` fails immediately — the drift risk is caught at test time, not discovered live via mismatched client/server behavior.
+- Establishes the UMD-guarded, dual-consumption `public/*.js` module (browser `<script>` + Vitest `require()`) as the project's standing pattern for any future pure frontend logic that also needs direct unit tests (first used by `chart.js` in Phase 4, now confirmed with a second instance) — see also ADR-004.
+- No further follow-up: the parity test already covers the boundary cases (exact bounds, one unit past, `NaN`) that would most likely diverge between two hand-written implementations.
