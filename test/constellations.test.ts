@@ -12,7 +12,11 @@ const FIXED_DATE = new Date("2026-01-15T20:00:00Z");
 // Verified live during Phase 2 planning (docs/plan.md) and spot-checked against
 // real astronomical references (Orion/Taurus/Cassiopeia dominate a January
 // evening from mid-northern latitudes; summer constellations like Scorpius and
-// Sagittarius are correctly absent).
+// Sagittarius are correctly absent). Confirmed identical to the true full-hemisphere
+// 0.5° reference for this observer/time (checked during the hybrid-grid fix) — this
+// fixture just doesn't happen to have a near-horizon miss, so it doesn't exercise the
+// 0–5° dense band; that's covered separately by the "near-horizon constellations" test
+// below (Lepus, lat 40/lon -60). Don't treat a diff here as validating grid resolution.
 const EXPECTED_VISIBLE_CONSTELLATIONS = [
   "Andromeda", "Aquarius", "Aries", "Auriga", "Bootes", "Caelum",
   "Camelopardalis", "Cancer", "Canes Venatici", "Canis Major", "Canis Minor",
