@@ -36,6 +36,17 @@ describe("computeVisibleConstellations", () => {
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(500);
   });
+
+  // Spec (§Sky Calculation): visible constellations are those intersecting the
+  // local horizon at altitude ≥ 0°. A uniform 2° grid steps over constellations
+  // that sit as a thin sliver just above the horizon; the dense 0.5° band over
+  // alt 0–5° exists to catch them. Lepus is one such near-horizon constellation
+  // for this observer/time that a pure-2° grid misses — this guards the band.
+  it("includes near-horizon constellations a coarse 2° grid would miss", () => {
+    const observer = new Astronomy.Observer(40, -60, 0);
+    const result = computeVisibleConstellations(observer, FIXED_DATE);
+    expect(result).toContain("Lepus");
+  });
 });
 
 describe("classifyStarConstellation", () => {
