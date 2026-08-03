@@ -35,12 +35,20 @@ A `Procfile` (`web: npm start`) and a `heroku-postbuild` script are included for
 Procfile-respecting host; this isn't a commitment to a specific provider, just a portable
 convention for a single-process Node app.
 
+## Deploying to Render
+
+`render.yaml` at the repo root is a [Render Blueprint](https://render.com/docs/blueprint-spec):
+in the Render dashboard, choose **New > Blueprint**, connect this repo, and Render reads
+`render.yaml` to configure the build command, start command, health check path, and
+`TRUST_PROXY=1` (correct for Render's single-hop edge proxy) automatically — no manual
+service configuration needed. `PORT` is injected by Render itself.
+
 ## Configuration
 
-- `PORT` — port to listen on (defaults to `3000`).
-- `TRUST_PROXY` — number of reverse-proxy hops in front of the app (e.g. `1` for Heroku or
-  a single load balancer). **Leave unset if the app is directly reachable** — setting this
-  without a real proxy in front lets a client bypass rate limiting by spoofing
+- `PORT` — port to listen on (defaults to `3000`; Render and most hosts set this for you).
+- `TRUST_PROXY` — number of reverse-proxy hops in front of the app (e.g. `1` for Render,
+  Heroku, or a single load balancer). **Leave unset if the app is directly reachable** —
+  setting this without a real proxy in front lets a client bypass rate limiting by spoofing
   `X-Forwarded-For`. Only set it when you've confirmed your host puts a trusted proxy
   between the internet and this process.
 

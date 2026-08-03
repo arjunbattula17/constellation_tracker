@@ -1,0 +1,11 @@
+services:
+  - name: sky-snapshot
+    type: web
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"

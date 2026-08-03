@@ -19,6 +19,7 @@ export function createApp() {
   const app = express();
   app.set("trust proxy", resolveTrustProxy());
   app.use(helmet());
+  app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
   app.use(skySnapshotRouter);
   app.use(express.static(path.join(process.cwd(), "public")));
   return app;
