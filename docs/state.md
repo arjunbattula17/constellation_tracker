@@ -8,8 +8,10 @@
 - ADR-001 recorded: full IAU-88 + full star catalog over a curated subset
 
 ## Next step
-- Run /construct 2 — Phase 2: constellation visibility (highest-risk phase; fallback
-  documented in docs/plan.md if boundary-polygon math proves too slow)
+- Run /construct 2 — Phase 2: constellation visibility. Plan was pre-verified this session:
+  astronomy-engine's Constellation() already has the IAU-88 data built in, no external
+  dataset needed. Full algorithm + 2 verified gotchas are in docs/plan.md Phase 2 — read
+  it before starting, don't re-derive.
 
 ## Open questions
 - None blocking; spec.md's remaining Open Questions are deferred to build time as planned

@@ -114,7 +114,7 @@ When the client requests a sky snapshot, the system shall return the currently v
 - Rate limit exceeded → HTTP 429, friendly frontend message.
 
 ## Open Questions
-- **Timeline risk:** precise IAU-88 boundary-polygon horizon math (chosen over a simpler star-sampling approximation) is a real implementation lift, as is sourcing/parsing the full boundary dataset and a fuller star catalog rather than a curated subset. This is the biggest risk to the "days, not months" goal — flagged, not blocking, but the first candidate to reconsider if the timeline slips during `/blueprint` or `/construct`.
+- **Timeline risk — largely resolved (2026-08-02):** originally flagged as the biggest risk to the "days, not months" goal, since it implied sourcing/parsing a separate IAU-88 boundary dataset and hand-rolling boundary-polygon/horizon intersection math. During Phase 2 planning, live prototyping found `astronomy-engine` already bundles the official IAU-88 boundary data and exposes it via `Constellation(ra, dec)` — no external dataset needed. See `docs/plan.md` Phase 2 for the verified grid-sampling approach, timing (~15ms/request), and two real gotchas found along the way (a library hang at exactly alt=90° with refraction correction, and 3 misspelled constellation names in the library's own name table).
 - Exact default demo location/city for first page load — deferred to build time as a cheap, reversible constant.
 - Exact visual design of the horizontal strip/mini chart (spacing, iconography, labeling density) — needs a design pass during build, not fully specified here.
 

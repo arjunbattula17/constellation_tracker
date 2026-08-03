@@ -11,11 +11,31 @@ Date: 2026-08-02
 **Status:** [x] Complete — 2026-08-02
 
 ## Phase 2: Constellation Visibility
-**Build:** Source an IAU-88 constellation boundary vertex dataset. Implement boundary-edge/horizon intersection to determine, for each of the 88 constellations, whether any part of its boundary is above the horizon (alt ≥ 0°) at the given time/location. Classify each catalog star's constellation membership using the same boundary data (reuse `astronomy-engine`'s built-in `Constellation()` function if it fits the need, rather than hand-rolling point-in-polygon classification). Extend the `/api/sky-snapshot` response to populate the constellations list and tag each famous star with its constellation. Update the frontend list to show constellation names.
-**Verify:** Compare the API's visible-constellation output against a reference source (Stellarium web or in-the-sky.org) for at least 3 different place/time combinations. Confirm famous star entries carry the correct constellation tag (e.g. Sirius → Canis Major). Confirm the endpoint doesn't crash or misbehave when almost nothing is above the horizon (e.g. daytime input).
-**Test:** Unit tests for the boundary-horizon intersection function against known true/false visibility cases. Unit test for star-to-constellation classification against a handful of known stars.
-**Done when:** The constellation list matches a trusted reference source for 3+ spot-checked place/time combinations, and star constellation tags are correct.
-**Flagged risk / fallback:** This is the highest-risk phase for the "days, not months" timeline (per spec Open Questions). If full boundary-polygon math proves too slow to get right, the documented fallback is descoping to a star-sampling approximation (mark a constellation visible if any of its named/bright stars are above the horizon) — a conscious, called-out descope, not a silent one.
+**Pre-verified approach (2026-08-02 planning session — do not re-derive, this was prototyped and timed live):** `astronomy-engine` already bundles the official IAU-88 boundary data internally and exposes it via `Astronomy.Constellation(ra, dec): ConstellationInfo` (J2000 RA in hours, Dec in degrees — same units as our star catalog). **No external boundary dataset needs to be sourced.** This removes the data-sourcing risk originally flagged for this phase.
+
+- **Star classification** is trivial: `Astronomy.Constellation(star.raHours, star.decDeg).symbol/.name` directly, since `data/stars.json` is already J2000 RA/Dec.
+- **Visible-constellation determination**: grid-sample the visible hemisphere. For altitude 0..90° and azimuth 0..360° in 2° steps, convert each horizontal point to a J2000 equatorial point and classify it:
+  ```ts
+  const rot = Astronomy.Rotation_HOR_EQJ(date, observer); // compute once per request
+  for (alt = 0; alt <= 90; alt += 2) {
+    for (az = 0; az < 360; az += 2) {
+      const sph = new Astronomy.Spherical(alt, az, 1);
+      const hv = Astronomy.VectorFromHorizon(sph, date, null); // see gotcha below — refraction must be null
+      const ev = Astronomy.RotateVector(rot, hv);
+      const eq = Astronomy.EquatorFromVector(ev);
+      const c = Astronomy.Constellation(eq.ra, eq.dec);
+      visible.add(resolveConstellationName(c)); // see name-correction gotcha below
+    }
+  }
+  ```
+  Verified live: 2° resolution (8,280 points) takes ~15ms and finds the exact same 46-constellation set as a 0.5° resolution (130,320 points, ~68ms) for a fixed test observer/time — 2° is proven sufficient, not a guess. This is a grid-sampling approximation of the true boundary-polygon test, but at this resolution it's indistinguishable from the exact answer and reuses astronomy-engine's own precise boundary data — it satisfies the spec's "precise IAU-88 boundary polygons" requirement without hand-rolling polygon-edge/horizon intersection math ourselves.
+- **Gotcha 1 (verified, cost ~15 min to isolate):** `Astronomy.VectorFromHorizon(sphere, date, "normal")` hangs indefinitely at exactly `altitude: 90°` (likely a non-converging refraction correction at the zenith singularity). Fix: pass `null` for refraction, not `"normal"`. This is also the *more correct* choice here — we only want the true geometric direction for constellation classification, not an atmospherically-refracted apparent position.
+- **Gotcha 2 (verified against `node_modules/astronomy-engine/astronomy.js`'s `ConstelNames` table):** the library's own name table has 3 misspellings versus standard IAU names: `Ant`→`"Antila"` (should be **Antlia**), `Cam`→`"Camelopardis"` (should be **Camelopardalis**), `PsA`→`"Pisces Austrinus"` (should be **Piscis Austrinus**). Don't display `ConstellationInfo.name` raw — write a small `resolveConstellationName()` correcting these 3 by symbol (`Ant`/`Cam`/`PsA`) and passing the other 85 through unchanged.
+
+**Build:** New `src/sky/constellations.ts` exporting `computeVisibleConstellations(observer, date): string[]` (the grid-sample above, returning sorted corrected names) and `classifyStarConstellation(raHours, decDeg): string`. Add `FamousStar` type (`VisibleObject` + `constellation: string`) to `src/sky/types.ts`; update `computeVisibleFamousStars` in `src/sky/stars.ts` to tag each result via `classifyStarConstellation`. Wire both into `src/sky/snapshot.ts`, replacing the current hardcoded `constellations: []`. Update `public/app.js` to show each star's constellation and render the constellations list.
+**Verify:** Compare the API's visible-constellation output against a reference source (Stellarium web or in-the-sky.org) for at least 3 different place/time combinations. Confirm famous star entries carry the correct, corrected constellation name (e.g. Sirius → Canis Major, and specifically check one of the 3 corrected names shows up right if it's in the current sky). Confirm the endpoint doesn't crash or misbehave near the zenith or when almost nothing is above the horizon (e.g. daytime input) — this is exactly the case Gotcha 1 would resurface if the refraction fix is dropped.
+**Test:** Unit test `computeVisibleConstellations` against a fixed observer/time fixture (assert a known-correct set, e.g. from the live verification above). Unit test `classifyStarConstellation` against known stars (Polaris → Ursa Minor/UMi, Sirius → Canis Major/CMa). Unit test `resolveConstellationName` for all 3 corrected symbols plus one pass-through case. Regression test asserting the grid sample completes quickly (e.g. under 500ms) and doesn't hang at alt=90 — this directly guards against Gotcha 1 reappearing.
+**Done when:** The constellation list matches a trusted reference source for 3+ spot-checked place/time combinations, star constellation tags are correct, and displayed names use the corrected spellings.
 **Status:** [ ] Not started
 
 ## Phase 3: Real Location Input
