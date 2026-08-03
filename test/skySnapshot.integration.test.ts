@@ -22,7 +22,7 @@ describe("GET /api/sky-snapshot", () => {
     expect(Array.isArray(res.body.stars)).toBe(true);
     expect(Array.isArray(res.body.planets)).toBe(true);
     expect(Array.isArray(res.body.galaxies)).toBe(true);
-    // Phase 1 has not implemented constellation determination yet.
+    // TODO: update once constellation determination is implemented.
     expect(res.body.constellations).toEqual([]);
   });
 

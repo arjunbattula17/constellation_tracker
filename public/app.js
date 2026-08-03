@@ -1,5 +1,4 @@
-// Default demo location: Royal Observatory, Greenwich (fixed constant, see docs/spec.md).
-const DEFAULT_LOCATION = { lat: 51.4769, lon: -0.0005 };
+const DEFAULT_LOCATION = { lat: 51.4769, lon: -0.0005 }; // Royal Observatory, Greenwich
 
 const statusEl = document.getElementById("status");
 const listsEl = document.getElementById("lists");
@@ -51,5 +50,5 @@ async function fetchSkySnapshot(lat, lon, timestamp) {
   }
 }
 
-locationLabelEl.textContent = `Showing the sky right now for the default location (Greenwich, UK).`;
+locationLabelEl.textContent = "Showing the sky right now for the default location (Greenwich, UK).";
 fetchSkySnapshot(DEFAULT_LOCATION.lat, DEFAULT_LOCATION.lon);
