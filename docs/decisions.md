@@ -231,3 +231,93 @@
 - Deploying now requires no manual Render dashboard configuration beyond connecting the repo via "New > Blueprint" — `render.yaml` supplies build/start commands, the free plan, the health check path, and the correct `TRUST_PROXY` value.
 - `/health` is a permanent, minimal, dependency-free endpoint; any future change to `src/server.ts`'s middleware order should keep it ahead of anything that could make it slow or fail (rate limiting, sky calculation) — it exists specifically to answer "is the process alive" cheaply.
 - If the project ever moves off Render, `render.yaml` stops being read (harmless dead file) but `Procfile`/`heroku-postbuild` and `/health` remain useful on most other Node-hosting platforms.
+
+## ADR-009: Mission-dashboard redesign keeps rectangular chart coordinates, rejects polar/3D
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** The user asked to make the app "more interactive," citing a JPL/Eyes-on-Asteroids-style mission-dashboard feel as the reference (chosen explicitly over a 3D solar-system-orbit style when asked to pick between them) and said they were open to a bigger visual overhaul of the chart itself. The question was whether "bigger overhaul" should include changing the chart's underlying coordinate system (e.g. a radial/polar "compass rose" view, or a 3D scene) or stay within the existing rectangular altitude/azimuth strip established in Phase 4/ADR-004.
+
+**Alternatives Considered:**
+
+### Radial/polar or 3D chart (a bigger geometric overhaul)
+- Pros: Visually closer to some real astronomy tools (e.g. a polar sky-dome view); matches "bigger overhaul" literally.
+- Cons: `test/chart.test.ts` hard-codes exact pixel `x`/`y` values for the current linear `azimuthToX`/altitude-to-`y` mapping — changing the coordinate system would rewrite most of that file for a visual style the user didn't actually ask for (they picked the dashboard reference over the orbit-viewer one when asked directly); the existing label-placement logic (`selectLabeledItems`, `layoutLabelPositions`, `anchorForX`) is built entirely around a rectangular x-axis and would need a parallel implementation, not a reinterpretation, for polar coordinates.
+- Rejected: real scope/risk for a visual style not actually requested — rectangular elevation/azimuth strips are also literally what real astronomy dashboards use, so it isn't a compromise.
+
+### Keep the existing rectangular coordinates; put the "bigger overhaul" into presentation, interactivity, and rendering mechanics instead (chosen)
+- Pros: Zero risk to `computeChartLayout`'s existing, well-tested output shape; the "mission dashboard" feel the user actually asked for comes from the dark theme, live panels, tooltips/focus interaction, and animated data-refresh transitions (ADR-010) — none of which require changing the coordinate system.
+- Cons: None identified — this reads as strictly lower risk with no missed requirement.
+
+**Decision:** Kept `chart.js`'s rectangular (linear azimuth→x, linear altitude→y) coordinate system unchanged through the whole Phase 6-10 redesign; all "bigger overhaul" work went into the dark theme, dashboard panels, tooltip/focus interactivity, and keyed-diff animated rendering instead of the chart's underlying geometry.
+
+**Consequences:**
+- `test/chart.test.ts`'s exact-pixel assertions for `computeChartLayout` needed no rewrite for this redesign (they were only extended, in ADR-010's related work, to include the new `altitude`/`azimuth`/`constellation` fields `describeItem` needs — not to change the coordinate math itself).
+- A future radial/3D view, if ever wanted, is a genuinely new layout function alongside `computeChartLayout`, not a modification of it — this ADR is the record of why that wasn't attempted now.
+
+## ADR-010: Animate dot transitions via keyed-diff rendering, despite often-imperceptible real motion
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Part of the mission-dashboard redesign (ADR-009) was making chart refreshes feel "alive" instead of a hard cut. A design-review pass recommended against animating individual dots easing between positions: real sky objects move roughly 0.25°/minute, so over a realistic 30-60s poll interval a dot's position barely changes — there's often nothing perceptible to animate — and naively adding a fade to the existing full-teardown-and-rebuild render model would make *every* dot flash on *every* refresh (since rebuild recreates 100% of nodes regardless of whether they changed), which reads as worse than no animation at all. The recommended alternative was a live clock, stat-count flashes, and a single whole-panel refresh pulse instead of per-dot motion. Asked directly, the user still wanted dots to visibly animate.
+
+**Alternatives Considered:**
+
+### No per-dot animation — clock/stat-flash/panel-pulse only (the design review's recommendation)
+- Pros: Cheaper to build; avoids animating a movement that's often physically imperceptible; sidesteps the full-rebuild-causes-flashing problem entirely by never touching per-dot rendering.
+- Cons: Doesn't deliver what the user explicitly asked for (dots that visibly animate) — the "liveliness" signal is at the panel level, not the sky itself, which is the app's main content.
+- Rejected: the user, informed of the imperceptible-motion tradeoff, chose to keep dot animation anyway — a legitimate product call favoring perceived polish over strict physical accuracy of the animation's magnitude.
+
+### Per-dot animation on top of the existing full-teardown-and-rebuild render (naive approach)
+- Pros: Minimal code change — just add a CSS transition/fade to newly-created dots.
+- Cons: Every dot is destroyed and recreated on every render regardless of whether its data changed, so a naive fade would fire for *all* dots on every refresh — exactly the "flashes instead of animates" failure mode the design review flagged.
+- Rejected: doesn't actually achieve smooth per-dot animation; recreates the problem it's meant to solve.
+
+### Keyed-diff rendering (chosen)
+- `chart.js`'s new `diffChartItems(prevItems, nextItems)` classifies items across two renders by stable identity (`${type}:${name}`) into entering/updating/exiting.
+- `app.js`'s `renderChart` keeps a persistent `Map<key, {circle, item}>` across calls instead of clearing `#sky-chart` every time: unchanged items get their existing `<circle>`'s `cx`/`cy` updated in place (a CSS `transition` animates the move — a deliberately generous ~0.7s duration, since the point is communicating "this just refreshed," not literally tracking real-time celestial motion at true speed), new items fade in, removed items fade out before their node is detached.
+- Labels are the deliberate exception: which items get labeled depends on the whole current item set's brightness ranking (`selectLabeledItems`), not any single item's identity, so labels are simplest rebuilt fresh every render rather than diffed — a targeted, documented scope reduction, not an oversight.
+- Native SVG `<title>` elements are kept on every dot alongside the new custom hover tooltip (from the same redesign's tooltip/focus-panel work) — removing them would need deliberate work to preserve equivalent accessibility, for no visual benefit since the custom tooltip supersedes them on hover.
+- Pros: Delivers what the user asked for (visible per-dot animation) without the full-rebuild flashing problem; `test/chart.test.ts`/`test/chartRender.test.ts` gained direct coverage of the diff classification and of DOM-node-identity persistence across two renders — a new regression class this architecture makes possible to test at all.
+- Cons: The largest architectural change in the redesign; `requestAnimationFrame` (the first implementation of the entering-fade trigger) turned out not to be polyfilled by jsdom, unlike a real browser — caught by running the actual test suite, fixed by switching to `setTimeout(fn, 0)`, which achieves the same "let the initial state paint before transitioning" effect portably (see `docs/learnings.md`).
+
+**Decision:** Built keyed-diff chart rendering (`diffChartItems` + a persistent per-key DOM node map in `renderChart`) so unchanged dots animate to new positions via CSS transitions and entering/exiting dots fade in/out, rather than settling for panel-level liveliness cues only — a deliberate choice to prioritize the user's explicit request for visible dot animation over strict physical-accuracy concerns about how much a dot's position actually changes per refresh.
+
+**Consequences:**
+- Every future change to `renderChart` must preserve the keyed persistent-node model — reverting to a full `container.innerHTML = ""` rebuild would silently reintroduce the exact "flashes on every refresh" problem this ADR exists to avoid.
+- Labels remain non-animated/fully-rebuilt by design; if a future change makes label identity trackable per-item (e.g. a fixed label roster rather than a brightness-ranked top-N), revisit whether they should join the diffed/animated path too.
+- `setTimeout(fn, 0)`, not `requestAnimationFrame`, is this codebase's established pattern for "defer to next tick so an initial CSS state can paint before transitioning" — matches both real browsers and the jsdom test environment.
+
+## ADR-011: Test poll-tick logic via direct function invocation, not fake timers
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Phase 10 added a 60-second auto-refresh poll (`pollTick`) as part of the mission-dashboard redesign. This project's jsdom-based frontend tests (`appGeolocation.test.ts`, `chartRender.test.ts`) construct their own `new JSDOM(...)` window and `dom.window.eval()` the real `app.js`/`chart.js`/etc. into it, rather than running app code in Vitest's own ambient jsdom environment. Testing a 60-second interval firing organically would mean either waiting 60+ real seconds per test (impractical) or using `vi.useFakeTimers()` to fast-forward it.
+
+**Alternatives Considered:**
+
+### `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync(...)`
+- Pros: The idiomatic Vitest way to test timer-driven code without real waits.
+- Cons: Verified directly (via a failing test) that this does not work with this project's test harness pattern — `vi.useFakeTimers()` patches the *outer* Vitest/Node test environment's global `Date`/`setInterval`, but a manually-constructed `new JSDOM(...)` window has its own fully separate, independent `Date`/`setInterval` implementations. Code `eval`'d into that inner window (including `setInterval(pollTick, POLL_INTERVAL_MS)`) is entirely unaffected by fake timers activated in the outer scope — a real, confirmed incompatibility, not a hypothetical one.
+- Rejected: doesn't work with this codebase's established jsdom-in-jsdom test pattern (itself already established for good reasons — see `docs/learnings.md`'s Phase 1 note on why frontend tests are verified this way).
+
+### Wait out a real, shortened test-only poll interval
+- Pros: Exercises the actual `setInterval` wiring end-to-end.
+- Cons: Requires either a test-only interval duration (an environment-detection branch in production code purely to serve tests — the kind of test-specific pollution this project avoids elsewhere) or accepting a real 60-second wait per test (unacceptably slow for a test suite that otherwise runs in ~3 seconds).
+- Rejected: both options are worse than just calling the tick logic directly.
+
+### Call `pollTick()` directly, bypassing the `setInterval` wiring entirely (chosen)
+- Since `app.js` is `eval`'d as a classic (non-module) script into the jsdom window's global scope, its top-level `function pollTick() {}` declaration is directly reachable as a property of that window (`dom.window.pollTick()`) — no export machinery needed.
+- Tests call `dom.window.pollTick()` directly to exercise the meaningful logic (re-fetches the last-used location, respects `document.hidden`, doesn't flash the loading state, doesn't blank the dashboard on a silent failure) without needing to control real or fake time at all.
+- The one-line `setInterval(pollTick, POLL_INTERVAL_MS)` wiring itself is treated as standard, low-risk browser API usage verified by live manual testing (per the plan's own "Verify" step), not by an automated test — matching how Phase 7's `setInterval(updateClock, 1000)` clock-tick wiring was handled the same way.
+- Pros: Tests run in milliseconds; directly exercises the actual production `pollTick` function (not a reimplementation); also surfaced a real, separate jsdom quirk along the way — a freshly-constructed `new JSDOM(...)` window defaults `document.hidden` to `true` (`visibilityState: "prerender"`), requiring tests to explicitly set it to `false` to exercise the "should poll" path.
+- Cons: Doesn't test the `setInterval` scheduling itself (mitigated by manual verification, matching this project's established split between automated and live-verified concerns for timer-driven UI).
+
+**Decision:** Test `pollTick`'s logic via direct invocation (`dom.window.pollTick()`), not `vi.useFakeTimers()`, because fake timers don't reach into a separately-constructed `new JSDOM(...)` window's own timer implementation in this project's established test-harness pattern — confirmed by a failing test, not assumed.
+
+**Consequences:**
+- Any future timer-driven frontend logic in this codebase (another poll, a debounce, a delayed retry) should follow the same pattern: expose the tick/callback as a directly-callable top-level function and test it by direct invocation, not by trying to drive the wrapping `setInterval`/`setTimeout` through fake timers.
+- `document.hidden` defaults to `true` in a freshly-constructed `new JSDOM(...)` window — any test exercising "visible tab" behavior must explicitly set it to `false`; this is now demonstrated in `test/appGeolocation.test.ts`'s polling tests for future tests to copy.
