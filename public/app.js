@@ -59,6 +59,15 @@ function renderChart(snapshot) {
   container.innerHTML = "";
 
   const { width, height, items } = computeChartLayout(snapshot);
+
+  if (items.length === 0) {
+    const message = document.createElement("p");
+    message.className = "chart-empty-message";
+    message.textContent = snapshot.message || "Nothing bright visible right now.";
+    container.appendChild(message);
+    return;
+  }
+
   const svgHeight = height + CHART_PADDING * 2;
 
   const svg = svgEl("svg", {

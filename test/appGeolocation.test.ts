@@ -171,3 +171,41 @@ describe("stale response handling", () => {
     expect(constellationsText).not.toContain("Stale-Marker");
   });
 });
+
+describe("API error responses", () => {
+  it("shows the friendly rate-limit message for a 429 response", async () => {
+    const dom = new JSDOM(indexHtml, { runScripts: "outside-only", url: "http://localhost/" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: "too many requests, try again shortly" }),
+    });
+    dom.window.fetch = fetchMock;
+    dom.window.eval(chartJs);
+    dom.window.eval(validateJs);
+    dom.window.eval(appJs);
+
+    await vi.waitFor(() =>
+      expect(byId(dom.window.document, "status").textContent).toBe("too many requests, try again shortly")
+    );
+    expect(byId(dom.window.document, "lists").hidden).toBe(true);
+  });
+
+  it("shows the friendly calculation-failure message for a 500 response", async () => {
+    const dom = new JSDOM(indexHtml, { runScripts: "outside-only", url: "http://localhost/" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "couldn't calculate the sky right now, try again" }),
+    });
+    dom.window.fetch = fetchMock;
+    dom.window.eval(chartJs);
+    dom.window.eval(validateJs);
+    dom.window.eval(appJs);
+
+    await vi.waitFor(() =>
+      expect(byId(dom.window.document, "status").textContent).toBe("couldn't calculate the sky right now, try again")
+    );
+    expect(byId(dom.window.document, "lists").hidden).toBe(true);
+  });
+});

@@ -96,6 +96,13 @@ ul {
   height: auto;
 }
 
+.chart-empty-message {
+  margin: 0;
+  padding: 1rem 0;
+  color: #9a9ac0;
+  text-align: center;
+}
+
 .horizon-line,
 .tick-line {
   stroke: #4a4a6a;

@@ -14,4 +14,5 @@ export interface SkySnapshot {
   stars: FamousStar[];
   planets: VisibleObject[];
   galaxies: VisibleObject[];
+  message: string | null;
 }

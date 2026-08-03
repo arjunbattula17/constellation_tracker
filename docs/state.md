@@ -13,14 +13,30 @@
   coordinate validation duplication + parity test) recorded in `docs/decisions.md`, pushed
   (cf51e40, 14ffe43).
 
+## Done (cont.)
+- Phase 3's manual browser verification checklist (docs/plan.md Phase 3) run live by the user
+  this session — all 6 steps passed. Phase 3 fully verified.
+- Phase 5 (Polish & Harden) built this session: `message: string | null` field on
+  `SkySnapshot` for the explicit "nothing bright visible right now" state (API +
+  `renderChart` empty-state text, with a client-side fallback string), `helmet` in
+  `src/server.ts`, `README.md` + `Procfile` + `heroku-postbuild` script. 429/500 friendly
+  messages and no-coordinate-logging were already shipped in Phase 1 — verified via
+  exploration, not rebuilt. Final EARS walkthrough found one spec/code mismatch (Sky
+  Calculation's Sun/Moon line had no corresponding output/code anywhere) — user chose to
+  correct the spec text, not add scope.
+- **Critical fix, post-build:** a live security review caught that the initial `trust proxy`
+  implementation hardcoded `1`, letting a client bypass rate limiting entirely by spoofing
+  `X-Forwarded-For` on any deployment without a real reverse proxy in front. Fixed to a
+  `TRUST_PROXY` env var defaulting to `false` (safe, restrictive default); regression-tested
+  both directions, confirmed the old code actually failed the new test first. See
+  `docs/learnings.md` "Inspection — 2026-08-03 (Phase 5, post-build)".
+  67/67 tests pass, `tsc` clean. Not yet committed/pushed — pending user go-ahead and a
+  possible `/decide` for the Sun/Moon spec-scope call.
+
 ## Next step
-- Phase 3's manual browser verification checklist (docs/plan.md Phase 3) had no prior evidence
-  of being run live (only jsdom-mocked coverage). User ran all 6 steps live in a real browser
-  this session — demo load, geolocation grant (label + snapshot both updated), geolocation
-  deny (fallback + message shown, demo stayed), invalid manual coord (inline error, no
-  request), valid manual coord/Tokyo (snapshot updated, error cleared), reload-still-demo.
-  All passed. Phase 3 is now fully verified.
-- Run /construct 5 — Phase 5: Polish & Harden.
+- Commit and push Phase 5 work (including the trust-proxy security fix); consider `/decide`
+  for the Sun/Moon spec-correction decision.
+- All 5 phases in docs/plan.md are now marked complete — no further planned phase remains.
 
 ## Open questions
 - None blocking.

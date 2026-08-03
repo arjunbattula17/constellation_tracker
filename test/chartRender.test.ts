@@ -127,4 +127,44 @@ describe("renderChart smoke test", () => {
       "Galaxy: Test Galaxy",
     ]);
   });
+
+  it("shows the server's explicit message instead of bare axes when nothing is visible", async () => {
+    const snapshot = {
+      constellations: ["Orion"],
+      stars: [],
+      planets: [],
+      galaxies: [],
+      message: "nothing bright visible right now",
+    };
+    const dom = setup(snapshot);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    expect(doc.querySelector("#sky-chart svg")).toBeNull();
+    expect(doc.querySelector("#sky-chart .chart-empty-message")!.textContent).toBe(
+      "nothing bright visible right now"
+    );
+  });
+
+  it("shows 'None currently visible' in the constellations list when none are visible", async () => {
+    const snapshot = {
+      constellations: [],
+      stars: [],
+      planets: [],
+      galaxies: [],
+      message: "nothing bright visible right now",
+    };
+    const dom = setup(snapshot);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    const items = Array.from(doc.querySelectorAll("#constellations-list li")).map((li) => li.textContent);
+    expect(items).toEqual(["None currently visible"]);
+  });
 });

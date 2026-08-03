@@ -33,7 +33,7 @@ Public web product. v1 success bar is modest: a handful of people try it and fin
 ## Requirements (EARS format)
 
 ### Sky Calculation
-- When the server receives a valid latitude, longitude, and timestamp, the system shall compute the current altitude/azimuth of the Sun, Moon, naked-eye planets, and catalog stars for that place and time.
+- When the server receives a valid latitude, longitude, and timestamp, the system shall compute the current altitude/azimuth of naked-eye planets and catalog stars for that place and time.
 - The system shall determine visible constellations using precise IAU-88 constellation boundary polygons intersected with the local horizon (altitude ≥ 0°) at the given place and time, not a star-sampling approximation.
 - The system shall classify each catalog star's constellation membership using its right ascension/declination against the IAU-88 boundaries.
 - Where a star has a common/proper name in the catalog, the system shall mark it as "famous" and include it by name in the output.
@@ -58,7 +58,7 @@ Public web product. v1 success bar is modest: a handful of people try it and fin
 ### Get Sky Snapshot
 When the client requests a sky snapshot, the system shall return the currently visible constellations, famous stars, naked-eye planets, and curated galaxies for the given place and time.
 **Accepts:** latitude (number, -90 to 90), longitude (number, -180 to 180), timestamp (defaults to server "now" if omitted)
-**Returns:** JSON with lists of visible constellations (name), famous stars (name, alt/az, constellation), visible planets (name, alt/az), visible curated galaxies (name, alt/az)
+**Returns:** JSON with lists of visible constellations (name), famous stars (name, alt/az, constellation), visible planets (name, alt/az), visible curated galaxies (name, alt/az), and a `message` field (string, or `null`) carrying the explicit "nothing bright visible right now" text when stars/planets/galaxies are all empty
 **Errors:**
 - Latitude/longitude out of range → HTTP 400 with validation message
 - Rate limit exceeded → HTTP 429
