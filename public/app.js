@@ -2,6 +2,14 @@ const DEFAULT_LOCATION = { lat: 51.4769, lon: -0.0005 }; // Royal Observatory, G
 
 const statusEl = document.getElementById("status");
 const listsEl = document.getElementById("lists");
+const liveClockEl = document.getElementById("live-clock");
+const statStarsEl = document.getElementById("stat-stars");
+const statPlanetsEl = document.getElementById("stat-planets");
+const statGalaxiesEl = document.getElementById("stat-galaxies");
+const statConstellationsEl = document.getElementById("stat-constellations");
+const lastUpdatedEl = document.getElementById("last-updated");
+const tooltipEl = document.getElementById("chart-tooltip");
+const focusPanelContentEl = document.getElementById("focus-panel-content");
 const locationLabelEl = document.getElementById("location-label");
 const useLocationBtn = document.getElementById("use-location-btn");
 const manualLocationEl = document.getElementById("manual-location");
@@ -17,6 +25,15 @@ const LOCATING_LABEL = "Locating…";
 const GEOLOCATION_OPTIONS = { timeout: 10000, maximumAge: 60000 };
 
 let latestRequestId = 0;
+let chartState = null; // null, or { svg, width, height, nodesByKey: Map<key, {circle, item}> }
+let activeKey = null;
+const FOCUS_PANEL_PLACEHOLDER = "Select an object to see details";
+const DOT_TRANSITION_MS = 700;
+
+let lastLocation = null; // { lat, lon } most recently requested, via any path — what a poll tick re-fetches
+let lastUpdatedAt = null; // Date.now() of the last successful render
+let previousStats = null; // last rendered stat counts, to detect a change worth flashing
+const POLL_INTERVAL_MS = 60000;
 
 function renderList(id, items, format) {
   const ul = document.getElementById(id);
@@ -54,22 +71,75 @@ function svgEl(tag, attrs) {
   return el;
 }
 
-function renderChart(snapshot) {
-  const container = document.getElementById("sky-chart");
-  container.innerHTML = "";
+function showTooltipAt(x, y, item) {
+  tooltipEl.textContent = describeItem(item).join("\n");
+  tooltipEl.style.left = `${x + 12}px`;
+  tooltipEl.style.top = `${y + 12}px`;
+  tooltipEl.hidden = false;
+}
 
-  const { width, height, items } = computeChartLayout(snapshot);
+function showTooltipAtCursor(event, item) {
+  showTooltipAt(event.clientX, event.clientY, item);
+}
 
-  if (items.length === 0) {
-    const message = document.createElement("p");
-    message.className = "chart-empty-message";
-    message.textContent = snapshot.message || "Nothing bright visible right now.";
-    container.appendChild(message);
-    return;
+function showTooltipNearElement(element, item) {
+  const rect = element.getBoundingClientRect();
+  showTooltipAt(rect.left, rect.top, item);
+}
+
+function hideTooltip() {
+  tooltipEl.hidden = true;
+}
+
+function setActiveItem(key) {
+  const node = chartState && chartState.nodesByKey.get(key);
+  if (!node) return;
+  if (activeKey && chartState.nodesByKey.has(activeKey)) {
+    chartState.nodesByKey.get(activeKey).circle.classList.remove("dot-active");
   }
+  activeKey = key;
+  node.circle.classList.add("dot-active");
+  focusPanelContentEl.textContent = describeItem(node.item).join("\n");
+}
 
+// Reads the item's *current* data at event time (via the nodesByKey lookup),
+// not the item this listener closed over at creation time — a circle is
+// reused across renders, so its underlying item can be updated in place.
+function createDotNode(key, item, y) {
+  const color = TYPE_COLORS[item.type] || "#333";
+  const circle = svgEl("circle", {
+    cx: item.x,
+    cy: y,
+    r: 3,
+    fill: color,
+    class: `dot dot-${item.type}`,
+    tabindex: "0",
+    role: "button",
+    "aria-label": item.name,
+  });
+  const title = document.createElementNS(SVG_NS, "title");
+  title.textContent = item.name;
+  circle.appendChild(title);
+
+  const currentItem = () => chartState.nodesByKey.get(key).item;
+  circle.addEventListener("mouseenter", (event) => showTooltipAtCursor(event, currentItem()));
+  circle.addEventListener("mousemove", (event) => showTooltipAtCursor(event, currentItem()));
+  circle.addEventListener("mouseleave", hideTooltip);
+  circle.addEventListener("focus", () => showTooltipNearElement(circle, currentItem()));
+  circle.addEventListener("blur", hideTooltip);
+  circle.addEventListener("click", () => setActiveItem(key));
+  circle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setActiveItem(key);
+    }
+  });
+
+  return circle;
+}
+
+function buildChartScaffold(width, height) {
   const svgHeight = height + CHART_PADDING * 2;
-
   const svg = svgEl("svg", {
     viewBox: `0 0 ${width} ${svgHeight}`,
     class: "sky-chart-svg",
@@ -78,13 +148,7 @@ function renderChart(snapshot) {
   });
 
   svg.appendChild(
-    svgEl("line", {
-      x1: 0,
-      y1: CHART_PADDING + height,
-      x2: width,
-      y2: CHART_PADDING + height,
-      class: "horizon-line",
-    })
+    svgEl("line", { x1: 0, y1: CHART_PADDING + height, x2: width, y2: CHART_PADDING + height, class: "horizon-line" })
   );
 
   for (const tick of COMPASS_TICKS) {
@@ -102,33 +166,98 @@ function renderChart(snapshot) {
     svg.appendChild(label);
   }
 
+  return svg;
+}
+
+// Renders by diffing against the previously-rendered items (keyed by
+// type+name) instead of tearing the chart down and rebuilding it every time:
+// unchanged objects keep their existing <circle> and just get new cx/cy (the
+// CSS transition on .dot animates the move), new objects fade in, and
+// objects no longer visible fade out before being removed. This is what
+// makes a data refresh read as "the sky updated" instead of "the page
+// flashed." Labels are the exception — which items get labeled depends on
+// the whole current item set's brightness ranking, not any single item's
+// identity, so they're simplest rebuilt fresh every render.
+function renderChart(snapshot) {
+  const container = document.getElementById("sky-chart");
+  const { width, height, items } = computeChartLayout(snapshot);
+
+  if (items.length === 0) {
+    chartState = null;
+    activeKey = null;
+    focusPanelContentEl.textContent = FOCUS_PANEL_PLACEHOLDER;
+    container.innerHTML = "";
+    const message = document.createElement("p");
+    message.className = "chart-empty-message";
+    message.textContent = snapshot.message || "Nothing bright visible right now.";
+    container.appendChild(message);
+    return;
+  }
+
+  if (!chartState || chartState.width !== width || chartState.height !== height) {
+    container.innerHTML = "";
+    activeKey = null;
+    focusPanelContentEl.textContent = FOCUS_PANEL_PLACEHOLDER;
+    const svg = buildChartScaffold(width, height);
+    container.appendChild(svg);
+    chartState = { svg, width, height, nodesByKey: new Map() };
+  }
+
+  const { svg, nodesByKey } = chartState;
+  const prevItems = Array.from(nodesByKey.values()).map((node) => node.item);
+  const diff = diffChartItems(prevItems, items);
+
+  for (const { key, next } of diff.entering) {
+    const circle = createDotNode(key, next, next.y + CHART_PADDING);
+    circle.classList.add("dot-entering");
+    svg.appendChild(circle);
+    nodesByKey.set(key, { circle, item: next });
+    setTimeout(() => circle.classList.remove("dot-entering"), 0);
+  }
+
+  for (const { key, next } of diff.updating) {
+    const node = nodesByKey.get(key);
+    node.circle.setAttribute("cx", next.x);
+    node.circle.setAttribute("cy", next.y + CHART_PADDING);
+    node.item = next;
+    if (key === activeKey) {
+      focusPanelContentEl.textContent = describeItem(next).join("\n");
+    }
+  }
+
+  for (const { key } of diff.exiting) {
+    const node = nodesByKey.get(key);
+    node.circle.classList.add("dot-exiting");
+    nodesByKey.delete(key);
+    if (key === activeKey) {
+      activeKey = null;
+      focusPanelContentEl.textContent = FOCUS_PANEL_PLACEHOLDER;
+    }
+    setTimeout(() => node.circle.remove(), DOT_TRANSITION_MS);
+  }
+
+  svg.querySelectorAll(".dot-label").forEach((el) => el.remove());
   const labeledItems = selectLabeledItems(items);
   const labelPositions = layoutLabelPositions(Array.from(labeledItems), width);
-
   items.forEach((item) => {
-    const y = item.y + CHART_PADDING;
-    const color = TYPE_COLORS[item.type] || "#333";
-    const circle = svgEl("circle", { cx: item.x, cy: y, r: 3, fill: color, class: `dot dot-${item.type}` });
-    const title = document.createElementNS(SVG_NS, "title");
-    title.textContent = item.name;
-    circle.appendChild(title);
-    svg.appendChild(circle);
-
     const position = labelPositions.get(item);
-    if (position) {
-      const labelY = position.above ? y - 6 : y + BELOW_LABEL_OFFSET;
-      const label = svgEl("text", {
-        x: position.x,
-        y: labelY,
-        class: "dot-label",
-        "text-anchor": anchorForX(position.x, width),
-      });
-      label.textContent = item.name;
-      svg.appendChild(label);
-    }
+    if (!position) return;
+    const y = item.y + CHART_PADDING;
+    const labelY = position.above ? y - 6 : y + BELOW_LABEL_OFFSET;
+    const label = svgEl("text", {
+      x: position.x,
+      y: labelY,
+      class: "dot-label",
+      "text-anchor": anchorForX(position.x, width),
+    });
+    label.textContent = item.name;
+    svg.appendChild(label);
   });
 
-  container.appendChild(svg);
+  const oldLegend = container.querySelector(".chart-legend");
+  if (oldLegend) oldLegend.remove();
+  const oldSrList = container.querySelector(".sr-only");
+  if (oldSrList) oldSrList.remove();
   container.appendChild(buildChartLegend());
   container.appendChild(buildChartSrList(items));
 }
@@ -172,18 +301,57 @@ function buildChartLegend() {
   return legend;
 }
 
+function setStatValue(el, value, previousValue) {
+  el.textContent = value;
+  if (previousValue !== undefined && previousValue !== value) {
+    el.classList.remove("stat-flash");
+    void el.offsetWidth; // restart the CSS animation even if it's already applied
+    el.classList.add("stat-flash");
+  }
+}
+
+function renderStats(snapshot) {
+  const stats = computeStats(snapshot);
+  setStatValue(statStarsEl, stats.stars, previousStats && previousStats.stars);
+  setStatValue(statPlanetsEl, stats.planets, previousStats && previousStats.planets);
+  setStatValue(statGalaxiesEl, stats.galaxies, previousStats && previousStats.galaxies);
+  setStatValue(statConstellationsEl, stats.constellations, previousStats && previousStats.constellations);
+  previousStats = stats;
+}
+
 function renderSnapshot(snapshot) {
   renderList("constellations-list", snapshot.constellations, (name) => name);
   renderChart(snapshot);
+  renderStats(snapshot);
+  lastUpdatedAt = Date.now();
   statusEl.hidden = true;
   listsEl.hidden = false;
 }
 
-async function fetchSkySnapshot(lat, lon, timestamp) {
+function updateClock() {
+  liveClockEl.textContent = new Date().toLocaleTimeString();
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+function updateLastUpdatedTicker() {
+  lastUpdatedEl.textContent = lastUpdatedAt === null ? "" : `Updated ${formatRelativeTime(Date.now() - lastUpdatedAt)}`;
+}
+setInterval(updateLastUpdatedTicker, 1000);
+
+// `silent` is for poll-triggered background refreshes: no "Loading…" flash
+// (the dashboard just updates in place once new data arrives via the normal
+// diffed render), and a failure quietly keeps showing the last-known-good
+// data rather than blanking the dashboard out over a transient hiccup — it
+// simply retries on the next poll tick.
+async function fetchSkySnapshot(lat, lon, timestamp, { silent = false } = {}) {
+  lastLocation = { lat, lon };
   const requestId = ++latestRequestId;
-  statusEl.hidden = false;
-  statusEl.textContent = "Loading…";
-  listsEl.hidden = true;
+  if (!silent) {
+    statusEl.hidden = false;
+    statusEl.textContent = "Loading…";
+    listsEl.hidden = true;
+  }
 
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
   if (timestamp) params.set("timestamp", timestamp);
@@ -193,15 +361,24 @@ async function fetchSkySnapshot(lat, lon, timestamp) {
     const data = await response.json();
     if (requestId !== latestRequestId) return; // a newer request has since superseded this one
     if (!response.ok) {
+      if (silent) return;
       statusEl.textContent = data.error || "Something went wrong.";
       return;
     }
     renderSnapshot(data);
   } catch (err) {
     if (requestId !== latestRequestId) return;
+    if (silent) return;
     statusEl.textContent = "Couldn't reach the server, try again.";
   }
 }
+
+function pollTick() {
+  if (document.hidden) return;
+  if (!lastLocation) return;
+  fetchSkySnapshot(lastLocation.lat, lastLocation.lon, undefined, { silent: true });
+}
+setInterval(pollTick, POLL_INTERVAL_MS);
 
 function showManualFallback(message) {
   manualLocationMessageEl.textContent = message;

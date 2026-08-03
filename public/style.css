@@ -1,14 +1,125 @@
+:root {
+  --bg: #0a0a16;
+  --bg-panel: #10101f;
+  --bg-raised: #16162a;
+  --text: #e8e8f4;
+  --text-dim: #9a9ac0;
+  --border: #4a4a6a;
+  --error: #ff6b6b;
+  --accent-star: #c9a227;
+  --accent-planet: #4682b4;
+  --accent-galaxy: #c2185b;
+  --radius-sm: 0.3rem;
+  --radius-md: 0.4rem;
+  --radius-lg: 0.5rem;
+  --font-numeral: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --transition-fast: 0.15s ease;
+}
+
 body {
   font-family: system-ui, sans-serif;
   max-width: 40rem;
   margin: 2rem auto;
   padding: 0 1rem;
-  color: #1a1a2e;
-  background: #f6f6fb;
+  color: var(--text);
+  background: var(--bg);
 }
 
 h1 {
   margin-bottom: 0.25rem;
+}
+
+a {
+  color: var(--accent-planet);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-planet);
+  outline-offset: 2px;
+}
+
+#dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+#dashboard-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+#live-clock {
+  font-family: var(--font-numeral);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+
+#stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem 0.5rem;
+}
+
+.stat-value {
+  font-family: var(--font-numeral);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.4rem;
+  color: var(--text);
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@keyframes stat-flash {
+  from {
+    color: var(--accent-planet);
+  }
+  to {
+    color: var(--text);
+  }
+}
+
+.stat-flash {
+  animation: stat-flash 0.6s ease;
+}
+
+.last-updated {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-numeral);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.panel {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--text-dim);
 }
 
 #location-controls {
@@ -19,11 +130,17 @@ h1 {
 #manual-location-form button {
   font: inherit;
   padding: 0.4rem 0.9rem;
-  border: 1px solid #4a4a6a;
-  border-radius: 0.4rem;
-  background: #fbfbfe;
-  color: #1a1a2e;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  color: var(--text);
   cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+#use-location-btn:hover,
+#manual-location-form button:hover {
+  border-color: var(--text-dim);
 }
 
 #use-location-btn:disabled {
@@ -37,7 +154,7 @@ h1 {
 
 #manual-location-message {
   margin: 0 0 0.5rem;
-  color: #4a4a6a;
+  color: var(--text-dim);
 }
 
 #manual-location-form {
@@ -51,24 +168,29 @@ h1 {
   display: flex;
   flex-direction: column;
   font-size: 0.85rem;
-  color: #4a4a6a;
+  color: var(--text-dim);
   gap: 0.25rem;
 }
 
 #manual-location-form input {
   font: inherit;
   padding: 0.3rem 0.5rem;
-  border: 1px solid #4a4a6a;
-  border-radius: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   width: 8rem;
-  background: #fbfbfe;
-  color: #1a1a2e;
+  background: var(--bg-raised);
+  color: var(--text);
+  transition: border-color var(--transition-fast);
+}
+
+#manual-location-form input:hover {
+  border-color: var(--text-dim);
 }
 
 #manual-location-error {
   flex-basis: 100%;
   margin: 0;
-  color: #b3261e;
+  color: var(--error);
 }
 
 #manual-location-error:empty {
@@ -84,12 +206,6 @@ ul {
   padding-left: 1.25rem;
 }
 
-#sky-chart {
-  background: #10101f;
-  border-radius: 0.5rem;
-  padding: 0.5rem;
-}
-
 .sky-chart-svg {
   display: block;
   width: 100%;
@@ -99,30 +215,78 @@ ul {
 .chart-empty-message {
   margin: 0;
   padding: 1rem 0;
-  color: #9a9ac0;
+  color: var(--text-dim);
   text-align: center;
 }
 
 .horizon-line,
 .tick-line {
-  stroke: #4a4a6a;
+  stroke: var(--border);
   stroke-width: 0.5;
 }
 
 .tick-label {
   font-size: 7px;
-  fill: #9a9ac0;
+  fill: var(--text-dim);
 }
 
 .dot-label {
   font-size: 6px;
-  fill: #e8e8f4;
+  fill: var(--text);
+}
+
+.dot {
+  cursor: pointer;
+  opacity: 1;
+  transition: r var(--transition-fast), cx 0.7s ease, cy 0.7s ease, opacity 0.7s ease;
+}
+
+.dot:hover,
+.dot:focus-visible {
+  r: 4;
+}
+
+/* Applied for one frame on creation, then removed — the CSS transition
+   above animates the fade from this state back to the default (opacity: 1). */
+.dot-entering {
+  opacity: 0;
+}
+
+/* Applied on removal; the node is detached from the DOM once this
+   transition has had time to finish (see DOT_TRANSITION_MS in app.js). */
+.dot-exiting {
+  opacity: 0;
+}
+
+.dot-active {
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+.chart-tooltip {
+  position: fixed;
+  z-index: 10;
+  max-width: 14rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.8rem;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+#focus-panel-content {
+  margin: 0;
+  white-space: pre-line;
+  color: var(--text-dim);
 }
 
 .chart-legend {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
-  color: #4a4a6a;
+  color: var(--text-dim);
 }
 
 .legend-swatch {
@@ -134,15 +298,15 @@ ul {
 }
 
 .legend-star {
-  background: #c9a227;
+  background: var(--accent-star);
 }
 
 .legend-planet {
-  background: #4682b4;
+  background: var(--accent-planet);
 }
 
 .legend-galaxy {
-  background: #c2185b;
+  background: var(--accent-galaxy);
 }
 
 .sr-only {

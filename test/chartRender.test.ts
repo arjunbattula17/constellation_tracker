@@ -7,6 +7,8 @@ import { JSDOM } from "jsdom";
 const publicDir = path.join(__dirname, "..", "public");
 const indexHtml = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
 const chartJs = fs.readFileSync(path.join(publicDir, "chart.js"), "utf8");
+const statsJs = fs.readFileSync(path.join(publicDir, "stats.js"), "utf8");
+const timeFormatJs = fs.readFileSync(path.join(publicDir, "timeFormat.js"), "utf8");
 const validateJs = fs.readFileSync(path.join(publicDir, "validate.js"), "utf8");
 const appJs = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
 
@@ -44,6 +46,8 @@ function setup(snapshot: unknown) {
   dom.window.fetch = fetchMock;
   // Order matches index.html's <script> tags — see appGeolocation.test.ts.
   dom.window.eval(chartJs);
+  dom.window.eval(statsJs);
+  dom.window.eval(timeFormatJs);
   dom.window.eval(validateJs);
   dom.window.eval(appJs);
   return dom;
@@ -166,5 +170,151 @@ describe("renderChart smoke test", () => {
     const doc = dom.window.document;
     const items = Array.from(doc.querySelectorAll("#constellations-list li")).map((li) => li.textContent);
     expect(items).toEqual(["None currently visible"]);
+  });
+
+  it("clicking a dot highlights it and fills the focus panel with its details", async () => {
+    const snapshot = {
+      constellations: [],
+      stars: [],
+      planets: [{ name: "Jupiter", altitude: 20, azimuth: 50 }],
+      galaxies: [],
+    };
+    const dom = setup(snapshot);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    const circle = doc.querySelector("#sky-chart circle") as SVGCircleElement;
+    circle.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+
+    expect(circle.classList.contains("dot-active")).toBe(true);
+    expect(byId(doc, "focus-panel-content").textContent).toBe(
+      ["Planet: Jupiter", "Altitude: 20.0°", "Azimuth: 50.0°"].join("\n")
+    );
+  });
+
+  it("activates a dot via keyboard Enter, same as a click", async () => {
+    const snapshot = {
+      constellations: [],
+      stars: [{ name: "Sirius", altitude: 30, azimuth: 100, constellation: "Canis Major", magnitude: -1.44 }],
+      planets: [],
+      galaxies: [],
+    };
+    const dom = setup(snapshot);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    const circle = doc.querySelector("#sky-chart circle") as SVGCircleElement;
+    circle.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(circle.classList.contains("dot-active")).toBe(true);
+    expect(byId(doc, "focus-panel-content").textContent).toBe(
+      ["Star: Sirius", "Altitude: 30.0°", "Azimuth: 100.0°", "Magnitude: -1.44", "Constellation: Canis Major"].join(
+        "\n"
+      )
+    );
+  });
+
+  it("shows a tooltip with the item's details on hover, and hides it on mouseleave", async () => {
+    const snapshot = {
+      constellations: [],
+      stars: [],
+      planets: [{ name: "Jupiter", altitude: 20, azimuth: 50 }],
+      galaxies: [],
+    };
+    const dom = setup(snapshot);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    const circle = doc.querySelector("#sky-chart circle") as SVGCircleElement;
+    const tooltip = byId(doc, "chart-tooltip");
+    expect(tooltip.hidden).toBe(true);
+
+    circle.dispatchEvent(new dom.window.MouseEvent("mouseenter", { bubbles: true, clientX: 10, clientY: 20 }));
+    expect(tooltip.hidden).toBe(false);
+    expect(tooltip.textContent).toBe(["Planet: Jupiter", "Altitude: 20.0°", "Azimuth: 50.0°"].join("\n"));
+
+    circle.dispatchEvent(new dom.window.MouseEvent("mouseleave", { bubbles: true }));
+    expect(tooltip.hidden).toBe(true);
+  });
+
+  it("preserves DOM node identity for an unchanged item across a refresh, and animates entering/exiting items", async () => {
+    const firstSnapshot = {
+      constellations: [],
+      stars: [],
+      planets: [
+        { name: "Jupiter", altitude: 20, azimuth: 50 },
+        { name: "Saturn", altitude: 10, azimuth: 80 },
+      ],
+      galaxies: [],
+    };
+    const secondSnapshot = {
+      constellations: [],
+      stars: [],
+      // Jupiter persists (moved); Saturn is gone; Mars is new.
+      planets: [
+        { name: "Jupiter", altitude: 25, azimuth: 55 },
+        { name: "Mars", altitude: 15, azimuth: 90 },
+      ],
+      galaxies: [],
+    };
+
+    let fetchCount = 0;
+    const fetchMock = vi.fn().mockImplementation(() => {
+      fetchCount += 1;
+      return Promise.resolve({ ok: true, json: async () => (fetchCount === 1 ? firstSnapshot : secondSnapshot) });
+    });
+
+    const dom = new JSDOM(indexHtml, { runScripts: "outside-only", url: "http://localhost/" });
+    dom.window.fetch = fetchMock;
+    dom.window.eval(chartJs);
+    dom.window.eval(statsJs);
+    dom.window.eval(timeFormatJs);
+    dom.window.eval(validateJs);
+    dom.window.eval(appJs);
+
+    await vi.waitFor(() => {
+      expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    });
+
+    const doc = dom.window.document;
+    const findCircleByTitle = (name: string) =>
+      Array.from(doc.querySelectorAll("#sky-chart circle")).find((c) => c.querySelector("title")?.textContent === name);
+
+    const jupiterBefore = findCircleByTitle("Jupiter");
+    const saturnBefore = findCircleByTitle("Saturn");
+    expect(jupiterBefore).toBeTruthy();
+    expect(saturnBefore).toBeTruthy();
+    const jupiterCxBefore = jupiterBefore!.getAttribute("cx"); // captured now — jupiterBefore is a live node reference,
+    // so reading its attribute later would reflect the post-update value too, not what it was before the refresh.
+
+    // Trigger a second fetch via the manual form.
+    byId<HTMLInputElement>(doc, "manual-lat").value = "10";
+    byId<HTMLInputElement>(doc, "manual-lon").value = "10";
+    const submitBtn = doc.querySelector<HTMLButtonElement>('#manual-location-form button[type="submit"]');
+    if (!submitBtn) throw new Error("Expected manual-location-form submit button to exist");
+    submitBtn.click();
+
+    await vi.waitFor(() => {
+      expect(findCircleByTitle("Mars")).toBeTruthy();
+    });
+
+    const jupiterAfter = findCircleByTitle("Jupiter");
+    expect(jupiterAfter).toBe(jupiterBefore); // same DOM node reused, not recreated
+    expect(jupiterAfter!.getAttribute("cx")).not.toBe(jupiterCxBefore);
+
+    // Saturn is no longer in the snapshot — its node is marked exiting (fading
+    // out), not removed the instant it drops out, per the animated-exit design.
+    const saturnAfter = findCircleByTitle("Saturn");
+    expect(saturnAfter).toBe(saturnBefore);
+    expect(saturnAfter!.classList.contains("dot-exiting")).toBe(true);
   });
 });

@@ -7,6 +7,8 @@ import { JSDOM } from "jsdom";
 const publicDir = path.join(__dirname, "..", "public");
 const indexHtml = fs.readFileSync(path.join(publicDir, "index.html"), "utf8");
 const chartJs = fs.readFileSync(path.join(publicDir, "chart.js"), "utf8");
+const statsJs = fs.readFileSync(path.join(publicDir, "stats.js"), "utf8");
+const timeFormatJs = fs.readFileSync(path.join(publicDir, "timeFormat.js"), "utf8");
 const validateJs = fs.readFileSync(path.join(publicDir, "validate.js"), "utf8");
 const appJs = fs.readFileSync(path.join(publicDir, "app.js"), "utf8");
 
@@ -26,9 +28,11 @@ function setup() {
   });
   dom.window.fetch = fetchMock;
   // Order matches index.html's <script> tags: app.js's demo-load fetch fires
-  // immediately, and its renderSnapshot path needs chart.js's computeChartLayout
-  // and validate.js's validateCoordinates already defined.
+  // immediately, and its renderSnapshot path needs chart.js's computeChartLayout,
+  // stats.js's computeStats, and validate.js's validateCoordinates already defined.
   dom.window.eval(chartJs);
+  dom.window.eval(statsJs);
+  dom.window.eval(timeFormatJs);
   dom.window.eval(validateJs);
   dom.window.eval(appJs);
   return { dom, fetchMock };
@@ -143,6 +147,8 @@ describe("stale response handling", () => {
     });
     dom.window.fetch = fetchMock;
     dom.window.eval(chartJs);
+    dom.window.eval(statsJs);
+    dom.window.eval(timeFormatJs);
     dom.window.eval(validateJs);
     dom.window.eval(appJs);
     // The demo-load fetch (call #1, "stale") fires immediately above. Trigger a
@@ -182,6 +188,8 @@ describe("API error responses", () => {
     });
     dom.window.fetch = fetchMock;
     dom.window.eval(chartJs);
+    dom.window.eval(statsJs);
+    dom.window.eval(timeFormatJs);
     dom.window.eval(validateJs);
     dom.window.eval(appJs);
 
@@ -200,6 +208,8 @@ describe("API error responses", () => {
     });
     dom.window.fetch = fetchMock;
     dom.window.eval(chartJs);
+    dom.window.eval(statsJs);
+    dom.window.eval(timeFormatJs);
     dom.window.eval(validateJs);
     dom.window.eval(appJs);
 
@@ -207,5 +217,80 @@ describe("API error responses", () => {
       expect(byId(dom.window.document, "status").textContent).toBe("couldn't calculate the sky right now, try again")
     );
     expect(byId(dom.window.document, "lists").hidden).toBe(true);
+  });
+});
+
+describe("auto-refresh polling", () => {
+  it("re-fetches the last-used location on a poll tick, without flashing the loading state", async () => {
+    const { dom, fetchMock } = setup();
+    await vi.waitFor(() => expect(byId(dom.window.document, "lists").hidden).toBe(false));
+    fetchMock.mockClear();
+
+    // jsdom defaults a freshly-constructed window's document.hidden to true
+    // (visibilityState "prerender") — force it to "visible" to exercise the
+    // actually-polling path; the separate hidden-tab test below relies on
+    // this same jsdom default instead of overriding it.
+    Object.defineProperty(dom.window.document, "hidden", { value: false, configurable: true });
+    (dom.window as unknown as { pollTick: () => void }).pollTick();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("lat=51.4769"); // DEFAULT_LOCATION — the last (and only) location requested so far
+    expect(calledUrl).toContain("lon=-0.0005");
+    // A poll tick is a silent background refresh — the #status/"Loading…" element must
+    // never become visible for it, unlike a user-triggered fetch.
+    expect(byId(dom.window.document, "status").hidden).toBe(true);
+    expect(byId(dom.window.document, "lists").hidden).toBe(false);
+  });
+
+  it("re-fetches whichever location was most recently requested by the user, not always the default", async () => {
+    const { dom, fetchMock } = setup();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    byId<HTMLInputElement>(dom.window.document, "manual-lat").value = "35.6762";
+    byId<HTMLInputElement>(dom.window.document, "manual-lon").value = "139.6503";
+    const submitBtn = dom.window.document.querySelector<HTMLButtonElement>(
+      '#manual-location-form button[type="submit"]'
+    );
+    if (!submitBtn) throw new Error("Expected manual-location-form submit button to exist");
+    submitBtn.click();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    fetchMock.mockClear();
+
+    Object.defineProperty(dom.window.document, "hidden", { value: false, configurable: true });
+    (dom.window as unknown as { pollTick: () => void }).pollTick();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("lat=35.6762");
+    expect(calledUrl).toContain("lon=139.6503");
+  });
+
+  it("skips a poll tick entirely while the document is hidden", async () => {
+    const { dom, fetchMock } = setup();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fetchMock.mockClear();
+
+    Object.defineProperty(dom.window.document, "hidden", { value: true, configurable: true });
+    (dom.window as unknown as { pollTick: () => void }).pollTick();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps showing the last-known-good dashboard when a silent poll refresh fails", async () => {
+    const { dom, fetchMock } = setup();
+    await vi.waitFor(() => expect(byId(dom.window.document, "lists").hidden).toBe(false));
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: "boom" }) });
+
+    Object.defineProperty(dom.window.document, "hidden", { value: false, configurable: true });
+    (dom.window as unknown as { pollTick: () => void }).pollTick();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // The dashboard stays up — a background refresh failure doesn't blank it out.
+    expect(byId(dom.window.document, "lists").hidden).toBe(false);
+    expect(byId(dom.window.document, "status").hidden).toBe(true);
   });
 });

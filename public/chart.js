@@ -88,7 +88,59 @@ function layoutItem(type, obj, width, height, magnitude) {
     x: azimuthToX(obj.azimuth, width),
     y: height - (obj.altitude / 90) * height,
     magnitude,
+    altitude: obj.altitude,
+    azimuth: obj.azimuth,
+    constellation: obj.constellation,
   };
+}
+
+// Formats an item's detail fields for the tooltip/focus panel — plain data in,
+// plain strings out, so the content is unit-testable without touching the DOM.
+function describeItem(item) {
+  const lines = [
+    `${item.type.charAt(0).toUpperCase() + item.type.slice(1)}: ${item.name}`,
+    `Altitude: ${item.altitude.toFixed(1)}°`,
+    `Azimuth: ${item.azimuth.toFixed(1)}°`,
+  ];
+  if (item.magnitude !== null && item.magnitude !== undefined) {
+    lines.push(`Magnitude: ${item.magnitude.toFixed(2)}`);
+  }
+  if (item.constellation) {
+    lines.push(`Constellation: ${item.constellation}`);
+  }
+  return lines;
+}
+
+function itemKey(item) {
+  return `${item.type}:${item.name}`;
+}
+
+// Classifies items across two renders by stable identity (type+name), so the
+// caller can update existing DOM nodes in place (and animate the change)
+// instead of tearing everything down and rebuilding it on every refresh.
+function diffChartItems(prevItems, nextItems) {
+  const prevByKey = new Map(prevItems.map((item) => [itemKey(item), item]));
+  const nextByKey = new Map(nextItems.map((item) => [itemKey(item), item]));
+
+  const entering = [];
+  const updating = [];
+  const exiting = [];
+
+  for (const [key, next] of nextByKey) {
+    const prev = prevByKey.get(key);
+    if (prev) {
+      updating.push({ key, prev, next });
+    } else {
+      entering.push({ key, next });
+    }
+  }
+  for (const [key, prev] of prevByKey) {
+    if (!nextByKey.has(key)) {
+      exiting.push({ key, prev });
+    }
+  }
+
+  return { entering, updating, exiting };
 }
 
 if (typeof module !== "undefined") {
@@ -99,6 +151,9 @@ if (typeof module !== "undefined") {
     anchorForX,
     selectLabeledItems,
     layoutLabelPositions,
+    describeItem,
+    itemKey,
+    diffChartItems,
     LABEL_LIMIT,
     EDGE_MARGIN,
     MIN_LABEL_GAP,

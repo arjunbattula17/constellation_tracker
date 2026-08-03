@@ -7,8 +7,14 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <main>
+  <header id="dashboard-header">
     <h1>Sky Snapshot</h1>
+    <time id="live-clock"></time>
+  </header>
+
+  <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+
+  <main>
     <p id="location-label">Loading demo sky for the default location&hellip;</p>
 
     <div id="location-controls">
@@ -34,11 +40,38 @@
     <section id="results" aria-live="polite">
       <p id="status">Loading&hellip;</p>
       <div id="lists" hidden>
-        <div>
+        <p id="last-updated" class="last-updated"></p>
+
+        <div id="stat-strip">
+          <div class="stat-tile">
+            <span class="stat-value" id="stat-stars">0</span>
+            <span class="stat-label">Stars</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-value" id="stat-planets">0</span>
+            <span class="stat-label">Planets</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-value" id="stat-galaxies">0</span>
+            <span class="stat-label">Galaxies</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-value" id="stat-constellations">0</span>
+            <span class="stat-label">Constellations</span>
+          </div>
+        </div>
+
+        <div class="panel" id="chart-panel">
           <h2>Sky Chart</h2>
           <div id="sky-chart"></div>
         </div>
-        <div>
+
+        <div class="panel" id="focus-panel">
+          <h2>Focus</h2>
+          <p id="focus-panel-content">Select an object to see details</p>
+        </div>
+
+        <div class="panel" id="constellations-panel">
           <h2>Constellations</h2>
           <ul id="constellations-list"></ul>
         </div>
@@ -47,6 +80,8 @@
   </main>
 
   <script src="/chart.js"></script>
+  <script src="/stats.js"></script>
+  <script src="/timeFormat.js"></script>
   <script src="/validate.js"></script>
   <script src="/app.js"></script>
 </body>

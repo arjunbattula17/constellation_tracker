@@ -5,6 +5,8 @@ const {
   anchorForX,
   selectLabeledItems,
   layoutLabelPositions,
+  describeItem,
+  diffChartItems,
   LABEL_LIMIT,
   EDGE_MARGIN,
   MIN_LABEL_GAP,
@@ -32,11 +34,56 @@ describe("computeChartLayout", () => {
     expect(layout.width).toBe(360);
     expect(layout.height).toBe(90);
     expect(layout.items).toEqual([
-      { type: "star", name: "North Horizon Star", x: 0, y: 90, magnitude: 1.5 },
-      { type: "star", name: "East Mid Star", x: 90, y: 45, magnitude: 2.5 },
-      { type: "planet", name: "South Zenith Planet", x: 180, y: 0, magnitude: null },
-      { type: "galaxy", name: "West Horizon Galaxy", x: 270, y: 90, magnitude: null },
-      { type: "galaxy", name: "North Wrap Galaxy", x: 360, y: 90, magnitude: null },
+      {
+        type: "star",
+        name: "North Horizon Star",
+        x: 0,
+        y: 90,
+        magnitude: 1.5,
+        altitude: 0,
+        azimuth: 0,
+        constellation: "Xxx",
+      },
+      {
+        type: "star",
+        name: "East Mid Star",
+        x: 90,
+        y: 45,
+        magnitude: 2.5,
+        altitude: 45,
+        azimuth: 90,
+        constellation: "Xxx",
+      },
+      {
+        type: "planet",
+        name: "South Zenith Planet",
+        x: 180,
+        y: 0,
+        magnitude: null,
+        altitude: 90,
+        azimuth: 180,
+        constellation: undefined,
+      },
+      {
+        type: "galaxy",
+        name: "West Horizon Galaxy",
+        x: 270,
+        y: 90,
+        magnitude: null,
+        altitude: 0,
+        azimuth: 270,
+        constellation: undefined,
+      },
+      {
+        type: "galaxy",
+        name: "North Wrap Galaxy",
+        x: 360,
+        y: 90,
+        magnitude: null,
+        altitude: 0,
+        azimuth: 360,
+        constellation: undefined,
+      },
     ]);
   });
 
@@ -52,7 +99,52 @@ describe("computeChartLayout", () => {
 
     expect(layout.width).toBe(720);
     expect(layout.height).toBe(200);
-    expect(layout.items).toEqual([{ type: "star", name: "Test Star", x: 360, y: 100, magnitude: 1.0 }]);
+    expect(layout.items).toEqual([
+      {
+        type: "star",
+        name: "Test Star",
+        x: 360,
+        y: 100,
+        magnitude: 1.0,
+        altitude: 45,
+        azimuth: 180,
+        constellation: "Xxx",
+      },
+    ]);
+  });
+});
+
+describe("describeItem", () => {
+  it("formats a star's full detail including magnitude and constellation", () => {
+    const item = {
+      type: "star",
+      name: "Sirius",
+      altitude: 30.456,
+      azimuth: 120.789,
+      magnitude: -1.44,
+      constellation: "Canis Major",
+    };
+
+    expect(describeItem(item)).toEqual([
+      "Star: Sirius",
+      "Altitude: 30.5°",
+      "Azimuth: 120.8°",
+      "Magnitude: -1.44",
+      "Constellation: Canis Major",
+    ]);
+  });
+
+  it("omits magnitude and constellation for a planet (neither field present)", () => {
+    const item = {
+      type: "planet",
+      name: "Jupiter",
+      altitude: 20,
+      azimuth: 50,
+      magnitude: null,
+      constellation: undefined,
+    };
+
+    expect(describeItem(item)).toEqual(["Planet: Jupiter", "Altitude: 20.0°", "Azimuth: 50.0°"]);
   });
 });
 
@@ -134,5 +226,51 @@ describe("layoutLabelPositions", () => {
       expect(x).toBeGreaterThanOrEqual(0);
       expect(x).toBeLessThanOrEqual(width - EDGE_MARGIN);
     }
+  });
+});
+
+describe("diffChartItems", () => {
+  it("classifies a same-key item across two renders as updating, not enter/exit", () => {
+    const prev = [{ type: "planet", name: "Jupiter", x: 10, y: 10 }];
+    const next = [{ type: "planet", name: "Jupiter", x: 20, y: 15 }];
+
+    const diff = diffChartItems(prev, next);
+
+    expect(diff.entering).toEqual([]);
+    expect(diff.exiting).toEqual([]);
+    expect(diff.updating).toEqual([{ key: "planet:Jupiter", prev: prev[0], next: next[0] }]);
+  });
+
+  it("classifies a key only present in nextItems as entering", () => {
+    const prev: unknown[] = [];
+    const next = [{ type: "planet", name: "Venus", x: 5, y: 5 }];
+
+    const diff = diffChartItems(prev, next);
+
+    expect(diff.updating).toEqual([]);
+    expect(diff.exiting).toEqual([]);
+    expect(diff.entering).toEqual([{ key: "planet:Venus", next: next[0] }]);
+  });
+
+  it("classifies a key only present in prevItems as exiting", () => {
+    const prev = [{ type: "star", name: "Sirius", x: 5, y: 5 }];
+    const next: unknown[] = [];
+
+    const diff = diffChartItems(prev, next);
+
+    expect(diff.entering).toEqual([]);
+    expect(diff.updating).toEqual([]);
+    expect(diff.exiting).toEqual([{ key: "star:Sirius", prev: prev[0] }]);
+  });
+
+  it("keys by type+name, so the same name under a different type is treated as distinct", () => {
+    const prev = [{ type: "star", name: "Andromeda", x: 1, y: 1 }];
+    const next = [{ type: "galaxy", name: "Andromeda", x: 1, y: 1 }];
+
+    const diff = diffChartItems(prev, next);
+
+    expect(diff.updating).toEqual([]);
+    expect(diff.exiting).toEqual([{ key: "star:Andromeda", prev: prev[0] }]);
+    expect(diff.entering).toEqual([{ key: "galaxy:Andromeda", next: next[0] }]);
   });
 });
