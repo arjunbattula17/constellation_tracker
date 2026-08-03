@@ -83,3 +83,30 @@
 - Guarantees internal consistency: whenever a famous star is above the horizon, its tagged constellation is guaranteed to appear in that same request's visible-constellations list.
 - The HYG `con` field remains in `data/stars.json` and the `CatalogStar` type but is unused by the running app — noted in `docs/learnings.md` so a future session doesn't "simplify" by switching to it without re-deriving this reasoning.
 - No follow-up work: negligible performance cost given current catalog size and request-time budget.
+
+## ADR-004: Chart label layout lives in chart.js, not app.js — with a width-clamped placement algorithm
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** A review of the Phase 4 mini chart found a reproducible bug: `layoutLabelPositions` in `public/app.js` only nudged colliding labels rightward with no bound, so a cluster of labeled items in one azimuth region (a realistic case — the brightest stars/planets often cluster toward one horizon) pushed labels past the chart's right edge (repro: 16 clustered items, max label x=480 vs width=360, 12/16 clipped off-canvas). The same review separately noted that `selectLabeledItems`, `layoutLabelPositions`, and `anchorForX` were pure functions with no DOM dependency, but lived in `app.js` where only a slow jsdom smoke test could exercise them — the smoke test asserted label *count* but never checked bounds, which is exactly why the clipping bug shipped unnoticed.
+
+**Alternatives Considered:**
+
+### Patch the clamp in place, leave the functions in app.js
+- Pros: Smallest possible diff — just cap the pushed-right value at `width`.
+- Cons: Leaves the label-layout logic reachable only through a full jsdom render (`test/chartRender.test.ts`), the same blind spot that let the original bug through unnoticed; a future change to the placement algorithm has no fast, direct unit test to catch a regression.
+- Rejected: fixes today's symptom but leaves the review's second finding (untestable pure logic) in place.
+
+### Move the pure label-layout functions into chart.js (chosen)
+- `chart.js` already has a UMD guard (`if (typeof module !== "undefined") module.exports = {...}`) used by `computeChartLayout`/`azimuthToX`, loaded as a plain `<script>` in the browser (no bundler, no ES modules) and via `require()` in Node tests — the same pattern extends cleanly to the label functions.
+- Pros: `selectLabeledItems`, `layoutLabelPositions`, `anchorForX` become directly unit-testable (`test/chart.test.ts`) without jsdom; establishes `chart.js` as the home for all pure chart-layout math, `app.js` as DOM rendering/wiring only.
+- Cons: Touches more lines than a minimal patch (moves ~60 lines across files).
+- Rejected: no — this is the chosen option.
+
+**Decision:** Move `selectLabeledItems`, `layoutLabelPositions`, `anchorForX`, and their constants (`LABEL_LIMIT`, `EDGE_MARGIN`, `MIN_LABEL_GAP`) from `app.js` into `chart.js`'s existing UMD-guarded module, and give `layoutLabelPositions` a second backward pass that clamps every position to `width - EDGE_MARGIN` after the forward gap-preserving nudge — so when a cluster is too dense to satisfy both the minimum gap and the chart bound, the bound wins and labels overlap rather than run off-canvas.
+
+**Consequences:**
+- `chart.js` is now the single home for pure chart-layout math (`computeChartLayout`, `azimuthToX`, and the label-placement functions); `app.js` owns DOM construction and event wiring only — future chart features (e.g. a legend layout algorithm) should follow the same split.
+- `test/chart.test.ts` unit-tests the label functions directly (selection cutoff, gap-preserving nudge, width-clamp on a dense cluster); `test/chartRender.test.ts` keeps an integration-level jsdom check as a backstop, so the bug class (bounds violation) is now caught at both levels.
+- Accepted tradeoff: in a cluster too dense for the chart width, labels overlap each other rather than clip off-canvas — no further follow-up planned unless a future chart layout needs true collision-free placement (would require reducing label count or font size, not just repositioning).
