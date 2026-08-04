@@ -45,7 +45,7 @@ Public web product. v1 success bar is modest: a handful of people try it and fin
 - Where a star has a common/proper name in the catalog, the system shall mark it as "famous" and include it by name in the output.
 - The system shall include a naked-eye planet (Mercury, Venus, Mars, Jupiter, Saturn) in the output only when its computed altitude is ≥ 0° at the given place and time.
 - The system shall include a curated galaxy (e.g. Andromeda, Triangulum) in the output only when its computed altitude is ≥ 0° at the given place and time.
-- If no catalog stars, planets, or curated galaxies are currently above the horizon, then the system shall return an explicit "nothing bright visible right now" result rather than an empty/ambiguous response.
+- If no catalog stars, planets, curated galaxies, or the Moon are currently above the horizon, then the system shall return an explicit "nothing bright visible right now" result rather than an empty/ambiguous response. (The Moon was added to this condition when it entered the output — see ADR-017.)
 
 ### Place Input
 - When the user clicks "Use my location," the system shall request the browser Geolocation API and, on success, use the returned coordinates and the current time to fetch a sky snapshot.
@@ -64,7 +64,7 @@ Public web product. v1 success bar is modest: a handful of people try it and fin
 ### Get Sky Snapshot
 When the client requests a sky snapshot, the system shall return the currently visible constellations, famous stars, naked-eye planets, and curated galaxies for the given place and time.
 **Accepts:** latitude (number, -90 to 90), longitude (number, -180 to 180), timestamp (defaults to server "now" if omitted)
-**Returns:** JSON with lists of visible constellations (name), famous stars (name, alt/az, constellation), visible planets (name, alt/az), visible curated galaxies (name, alt/az), and a `message` field (string, or `null`) carrying the explicit "nothing bright visible right now" text when stars/planets/galaxies are all empty
+**Returns:** JSON with lists of visible constellations (name), famous stars (name, alt/az, constellation), visible planets (name, alt/az), visible curated galaxies (name, alt/az), and a `message` field (string, or `null`) carrying the explicit "nothing bright visible right now" text when stars/planets/galaxies are all empty and the Moon is below the horizon. The immersive sky map (ADR-013) adds `starfield`, `constellationLines`, `moon`, and `milkyway` to this response
 **Errors:**
 - Latitude/longitude out of range → HTTP 400 with validation message
 - Rate limit exceeded → HTTP 429
@@ -85,7 +85,7 @@ When the client requests a sky snapshot, the system shall return the currently v
 - Manual lat/long out of range → inline validation error, no request sent.
 - Server rate-limits the request → friendly "too many requests" message, no crash.
 - Server calculation fails → friendly generic error message, no internal details leaked.
-- Nothing currently visible above horizon → explicit "nothing bright visible right now" state, not a blank screen.
+- Nothing bright currently above horizon (no stars, planets, galaxies, or Moon) → explicit "nothing bright visible right now" state, not a blank screen.
 
 ## Data Model
 - **Star catalog:** an open catalog (e.g. HYG database) filtered to naked-eye magnitude (≤ ~6.5), retaining proper/common name where present (used as the "famous star" flag), right ascension, declination, and magnitude.

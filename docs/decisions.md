@@ -408,3 +408,30 @@
 - Full-snapshot request time measured at ~52 ms for the London fixture (starfield 4,401 stars, 43 figures up, 65 Milky Way polygons) — well within budget; measured, not assumed.
 - Famous-star positions are now identical-projection with the figure lines and starfield, so a named star's SVG marker lands exactly on its figure-line vertex at any zoom (bright named stars are the figure anchors). This shifts famous-star positions by ~0.3° vs. the old behavior — a correctness improvement, tolerated by the existing tolerance-based visibility tests.
 - Refraction is intentionally omitted (`null`) in the projector, matching `constellations.ts` and sidestepping the library's alt=90° refraction hang.
+
+## ADR-017: The Moon counts as "something bright visible"
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** The spec's Sky Calculation requirement read: "If no catalog stars, planets, or curated galaxies are currently above the horizon, then the system shall return an explicit 'nothing bright visible right now' result." That list was written before the Moon existed in the output (ADR-013 added it). Once the Moon is computed and rendered, the original condition produces an outright false statement: a full Moon 40° above the horizon with no named star, planet, or curated galaxy up would still return "nothing bright visible right now" — while the app draws the single brightest object in the night sky.
+
+**Alternatives Considered:**
+
+### Leave the condition as spec'd (stars/planets/galaxies only)
+- Pros: No spec edit; the shipped EARS requirement stays literally satisfied.
+- Cons: The message becomes a lie in exactly the case a user would most notice — the Moon is the brightest and most obvious thing up there. Satisfying the letter of a requirement that predates the feature isn't correctness.
+- Rejected: preserves a stale requirement at the cost of telling the user something visibly false.
+
+### Add the Moon to the condition, and correct the spec (chosen)
+- `computeSkySnapshot` sets the message only when `stars`, `planets`, `galaxies` are all empty **and** `moon === null` (`src/sky/snapshot.ts`).
+- Spec's Sky Calculation requirement, API "Returns" description, and Edge Cases list updated to name the Moon alongside the other three.
+- Pros: The message means what it says; spec and code agree again.
+- Cons: One more term in a condition that now has to be kept in sync as bright objects are added — mitigated by `test/snapshot.test.ts` mocking every sub-module, so a new body that isn't wired into the condition shows up as a test gap rather than silently.
+
+**Decision:** Include the Moon in the "nothing bright visible right now" condition and update `docs/spec.md` to match, because the Moon is the brightest object the app renders and excluding it would make the message factually wrong.
+
+**Consequences:**
+- `test/snapshot.test.ts` gained a "leaves the message null when only the Moon is up" case; the all-absent case now asserts `moon === null` too.
+- Constellations still do **not** count toward the condition (unchanged from the original spec) — a constellation region being above the horizon says nothing about whether anything *bright* is up.
+- Any future bright body added to the snapshot (a comet, ISS passes, more deep-sky objects) must be added to this condition and to the spec sentence at the same time.
