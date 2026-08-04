@@ -435,3 +435,40 @@
 - `test/snapshot.test.ts` gained a "leaves the message null when only the Moon is up" case; the all-absent case now asserts `moon === null` too.
 - Constellations still do **not** count toward the condition (unchanged from the original spec) — a constellation region being above the horizon says nothing about whether anything *bright* is up.
 - Any future bright body added to the snapshot (a comet, ISS passes, more deep-sky objects) must be added to this condition and to the spec sentence at the same time.
+
+## ADR-018: Shrink the Milky Way payload by simplifying at the source's own sampling granularity
+
+**Status:** Accepted
+**Date:** 2026-08-04
+
+**Context:** After the sky map went live, the snapshot response measured 1.03 MB, of which `milkyway` was 648 KB (59%) — and the client re-fetches it every 60 s on the poll (~23 MB/hour on an open tab). Two causes: d3-celestial's outlines are sampled on a ~0.1° grid (202 rings, ~30,700 vertices — far more detail than a diffuse, ~5%-opacity background band needs), and projected coordinates were serialized at full float precision (`144.226805772489`, 17 chars per number).
+
+**Alternatives Considered:**
+
+### Do nothing — Cloudflare already compresses it
+- Pros: Zero work, zero risk. Measured: brotli at the edge took the response from 1.03 MB to 391 KB on the wire (~3×).
+- Cons: Still ~23 MB/hour per open tab, and the server was projecting 16,888 vertices per request purely to throw most of that detail away — compression hides the payload cost but not the CPU cost.
+- Rejected: the waste is real on both axes; edge compression makes it cheaper, not justified.
+
+### Aggressive simplification (0.5–0.8° tolerance)
+- Pros: Measured 19–26× fewer points, vs 6.4× at 0.1° — the largest payload win available.
+- Cons: 0.5° is 20 px of boundary deviation at the client's maximum landscape zoom (40 px/deg). Critically, **nobody has ever visually confirmed how this band renders** (no browser was reachable; the canvas path is only verified via a recording stub), so there was no way to check whether the faceting shows. Choosing an aggressive tolerance would have been betting on an unverified assumption.
+- Rejected: not defensible while the visual pass is outstanding — a bad bet to take blind.
+
+### Planar Douglas-Peucker on raw `[lon, lat]`
+- Pros: Simplest implementation; the obvious approach.
+- Cons: **Wrong.** The source rings cross the RA 0/360 seam — one shows a 230° apparent jump between consecutive vertices. Planar distance reads that as an enormous genuine deviation and preserves spurious detail around the seam, so the simplification silently under-performs exactly where the ring wraps.
+- Rejected: produces plausible-looking but incorrect geometry.
+
+### Pre-process the data file on disk instead of simplifying at load
+- Pros: Zero per-process startup cost; smaller repo file.
+- Cons: Discards the full-resolution source, so the tolerance can't be revisited after the visual pass without re-downloading; and it makes the committed data no longer match upstream, weakening the provenance ADR-015 established.
+- Rejected: the tolerance is explicitly provisional pending visual review — keep the source intact.
+
+**Decision:** Simplify each ring once at load with Douglas-Peucker at a **0.1° tolerance — the source's own sampling granularity**, so only vertices deviating less than the data's inherent resolution are discarded, and run it on **3D unit vectors** rather than `[lon, lat]` so the RA 0/360 seam doesn't exist. Round projected coordinates to 2 decimals (0.01° is sub-pixel even at maximum zoom). Chosen because it is the conservative option that is defensible *without* having seen the band render, while still recovering most of the available win.
+
+**Consequences:**
+- Measured, same timestamp, both warm: `milkyway` 648.1 KB → **37.0 KB** (17.5×); vertices projected per request 16,888 → **2,435**; whole snapshot 1030 → 467 KB; wire transfer 391 → 128 KB; request 26.9 ms → **18.0 ms** (the CPU win was incidental but real — 14,000 fewer projector calls).
+- `SIMPLIFY_TOLERANCE_DEG` in `src/sky/milkyway.ts` is a **deliberately conservative placeholder**: the measured sweep (0.2°→10.7×, 0.3°→14.1×, 0.5°→19.1×) is available if the visual pass shows headroom. Revisit it then, not before.
+- `starfield` is now the dominant term at 375 KB (83% of what remains). The same coordinate rounding applies there and is the obvious next lever.
+- The RA-seam hazard generalizes: any future clipping, interpolation, or bounding-box work on this data must also avoid planar `[lon, lat]` math. Recorded in memory alongside the data format.
