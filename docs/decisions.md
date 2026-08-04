@@ -353,3 +353,58 @@
 - The live deployment's rate limiting is now verified correct against its actual network topology, not an assumed one — re-run the same live spoofed-header test after any future change to Render's edge configuration or a move to a different host.
 - Any future deployment target sitting behind Cloudflare (or a similar edge network with its own trusted "real IP" header) should follow the same pattern: a dedicated, explicitly-opt-in trust flag per trusted header source, never a header trusted unconditionally just because it looks authoritative.
 - `docs/learnings.md`'s "Post-deploy live security check" entry records the generalizable lesson: a fix verified correct in local tests can still be wrong against the real deployment if the assumed network topology doesn't match reality — check actual response headers from the live deployment rather than trusting host documentation or general research alone.
+
+## ADR-013: Replace the mission-dashboard with a full-immersive sky map (two toggleable views)
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** The shipped UI rendered visible objects as an abstract azimuth(0–360)×altitude(0–90) scatter strip plus stat tiles and a constellation text list (the "mission dashboard", ADR-009–011). Shown two reference images — a naturalistic horizon landscape and a circular all-sky planisphere — the user confirmed neither matched their intent: they wanted an actual picture of the sky, with constellation stick-figures, a starfield, the Moon, and a Milky Way band. This is a deliberate reversal of the spec's original "simple strip, not a full planetarium chart" choice (`docs/spec.md`).
+
+**Decision:** Replace the dashboard with a full-viewport, immersive sky map offering two projections behind a toggle — a circular azimuthal all-sky chart (zenith center, horizon rim, N-up/E-left) and a pannable landscape horizon slice — both with full pan + zoom. Retire the stat tiles and constellation text list; keep only the location controls and a small hover/tap info overlay as chrome. Confirmed with the user via four scoping questions before building (view style, figure lines, dashboard replacement, Moon/Milky Way).
+
+**Consequences:**
+- Retired `public/stats.js` + `test/stats.test.ts`, `public/timeFormat.js` + `test/timeFormat.test.ts` (the "updated N ago" ticker is gone), and the strip-layout functions in `chart.js` (`computeChartLayout` et al.); `chart.js` now exports only `describeItem`, reused by the new renderer for the tooltip/info overlay.
+- The circular view is the default on load (shows the whole sky, needs no facing choice). Azimuthal-equidistant projection (linear altitude→radius) was chosen for simplicity and to match the reference planisphere.
+- Server response gained four fields (see ADR-015); existing fields (`stars`/`planets`/`galaxies`/`constellations`) are retained to feed the interactive overlay.
+
+## ADR-014: Hybrid Canvas (starfield/lines/Milky Way) + SVG (interactive bodies) rendering
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** The immersive views draw ~4,400 above-horizon stars plus figure lines and a Milky Way band, all needing cheap full redraws on every pan/zoom frame — but a few hundred bodies (planets, Moon, named stars, galaxies) need hit-testing, hover tooltips, focus, and selection. A pure-SVG approach (the old chart's model) would mean thousands of diffed DOM nodes re-laid-out per drag frame; pure-Canvas would mean hand-rolling hit-testing for every interactive body.
+
+**Decision:** Render a hybrid: a `<canvas>` layer for the dense, non-interactive content (gradient, Milky Way, figure lines, starfield, horizon/cardinals) redrawn each frame, and an `<svg>` overlay for the interactive bodies, both driven by one shared view transform so they stay aligned. Pan/zoom repositions only the ~few-hundred SVG nodes (cheap attribute writes) and triggers one canvas redraw; a snapshot refresh reconciles SVG nodes by stable `type:name` key so bodies persist across the 60s poll.
+
+**Consequences:**
+- All pure projection/styling math lives in `public/projection.js` (unit-tested in the node env); pixels, DOM, and canvas live in `public/skyview.js`.
+- jsdom's `canvas.getContext()` returns `null`, so `drawCanvas` is guarded to no-op there — the SVG overlay, toggle, and interaction remain fully testable in jsdom (`test/skyview.test.ts`), and the canvas draw path is exercised separately via a recording-context stub + `Path2D` shim (`test/skyviewCanvas.test.ts`), since no headless canvas library is installed.
+- Starfield dots are batched into `Path2D` objects bucketed by opacity (one `fill` per bucket) to keep per-frame cost low; if pan/zoom ever feels janky on large starfields, that batching is the first knob.
+
+## ADR-015: Vendor d3-celestial figure-line + Milky Way data (BSD-3), project server-side by RA/Dec
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Constellation stick-figures need line topology (which points connect) that neither `astronomy-engine` nor the HYG catalog provides. Published figure-line datasets are commonly keyed by HIP number — but our `data/stars.json` drops every identifier (only `proper`/coordinates survive the build), which would have forced a catalog rebuild to add HIP.
+
+**Decision:** Vendor d3-celestial's `constellations.lines.json` (as `data/constellation-lines.json`) and `milkyway.json` — both BSD-3-licensed GeoJSON, verified against the repo before use. Their vertices are keyed by `[RA°, Dec°]`, not HIP, so **no catalog rebuild is needed**: the server projects each vertex's RA/Dec straight to alt/az with the same rotation used for stars (ADR-016), keeping "client never computes positions." Confirmed the coordinate convention against a known star (vertex `[2.0969, 29.0904]` = Alpheratz), so `raDeg = lon<0 ? lon+360 : lon`, `dec = lat`, no sign flip. Figures resolve their 3-letter id to a full IAU name via a static `constellationNames.ts` map (88 names; "Ser" appears twice, Caput+Cauda).
+
+**Consequences:**
+- Figure segments fully below the horizon are dropped server-side (with one below-horizon anchor kept per boundary so the client clips the edge cleanly at the horizon); the Milky Way band is emitted whole and clipped visually on the client (it's a filled aesthetic layer). Each figure carries a label anchor at the circular-mean azimuth / mean altitude of its above-horizon vertices.
+- Two new static data files must ship with the deploy (they are committed, not gitignored like the raw HYG CSV).
+
+## ADR-016: Batch rotation-matrix projection for the starfield (and famous stars), fixing the J2000 precession gap
+
+**Status:** Accepted
+**Date:** 2026-08-03
+
+**Context:** Emitting the full above-horizon starfield meant dropping the old `if (!star.proper) continue` filter, taking `Astronomy.Horizon()` calls from ~358 to ~8,920 per request. Separately, the existing famous-star path passed J2000 catalog coordinates straight into `Astronomy.Horizon()`, which expects equator-of-date — the documented "J2000 simplification" — introducing a ~0.3° precession error for epoch 2000→2026.
+
+**Decision:** Add `makeHorizonProjector(observer, date)` (`src/sky/projectHorizon.ts`) that builds one `Rotation_EQJ_HOR` matrix up front, then projects each RA/Dec via `VectorFromSphere → RotateVector → HorizonFromVector` (no refraction) — far cheaper than a per-star `Horizon()` call, and correctly precessing J2000→date. Use it for the starfield, figure lines, and Milky Way, and **also** refactor `computeVisibleFamousStars` onto it. Verified the projector against textbook geometry (Polaris altitude ≈ latitude, due north) rather than against another library function.
+
+**Consequences:**
+- Full-snapshot request time measured at ~52 ms for the London fixture (starfield 4,401 stars, 43 figures up, 65 Milky Way polygons) — well within budget; measured, not assumed.
+- Famous-star positions are now identical-projection with the figure lines and starfield, so a named star's SVG marker lands exactly on its figure-line vertex at any zoom (bright named stars are the figure anchors). This shifts famous-star positions by ~0.3° vs. the old behavior — a correctness improvement, tolerated by the existing tolerance-based visibility tests.
+- Refraction is intentionally omitted (`null`) in the projector, matching `constellations.ts` and sidestepping the library's alt=90° refraction hang.

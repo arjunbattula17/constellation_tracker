@@ -71,3 +71,9 @@ Manual verification checklist (real native permission-prompt UX only — see Tes
 ## Dependencies
 - Phase 2, Phase 3, and Phase 4 each depend only on Phase 1 (not on each other) — they can be built in parallel once Phase 1 ships.
 - Phase 5 depends on Phases 1-4 all being complete.
+
+## Phase 6: Immersive Sky Map (post-v1 rework)
+**Build:** Replace the mission-dashboard scatter strip with a full-viewport, immersive sky map — two toggleable projections (circular all-sky planisphere + pannable landscape horizon slice), both with pan + zoom, real constellation stick-figures, a full naked-eye starfield, the Moon (with phase), and a faint Milky Way band. Server gains `starfield`/`constellationLines`/`moon`/`milkyway` on `SkySnapshot`, projected via a shared `Rotation_EQJ_HOR` matrix; figure-line + Milky Way geometry vendored from d3-celestial (BSD-3). Client splits into pure projection math (`public/projection.js`) + a hybrid Canvas/SVG renderer (`public/skyview.js`). Retires `stats.js`, `timeFormat.js`, and the strip-layout code. See ADR-013 through ADR-016.
+**Verify:** `npm test` + `npm run build` green; live API returns the new fields; projection matches textbook geometry (Polaris ≈ latitude); canvas draw path exercised via a recording-context stub. **Remaining:** eyeball both views in a real browser (Chrome extension was down this session) and tune the visual styling.
+**Test:** `projection.test.ts` (node), `skyview.test.ts` + `skyviewCanvas.test.ts` (jsdom), `starfield`/`constellationLines`/`moon`/`projectHorizon` backend tests, extended `snapshot`/integration tests.
+**Status:** [~] Code + automated verification complete — 2026-08-03; awaiting a real-browser visual pass before commit.

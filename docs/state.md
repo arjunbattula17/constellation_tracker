@@ -3,31 +3,40 @@
 **Branch:** master
 
 ## Done
-- Phases 1-5 complete (spec v1 build) — all committed/pushed.
-- Mission-dashboard redesign (Phases 6-10) built, tested (90/90), committed, pushed
-  (def6736): dark theme, dashboard shell (clock/stats/focus panel), tooltips +
-  click-to-focus, keyed-diff animated chart rendering, silent 60s auto-refresh polling.
-- ADR-009/010/011 recorded (bc44de2): rectangular-over-polar coords, animate-despite-
-  imperceptible-motion (user overrode a design review's recommendation), poll-tick tested
-  via direct invocation (vi.useFakeTimers() doesn't reach a separately-constructed JSDOM).
-- Deployed target: Render, via committed `render.yaml` (ADR-008) — not yet actually
-  connected/deployed by the user.
+- **Immersive sky-map rework (this session):** replaced the mission-dashboard scatter
+  strip with a full-viewport sky map offering two toggleable views — a circular
+  all-sky planisphere and a pannable landscape horizon slice — both with pan + zoom,
+  real constellation stick-figures, a full ~4,400-star starfield, the Moon (with
+  phase), and a faint Milky Way band. Decisions recorded as ADR-013 through ADR-016.
+- Prior work still in place: Phases 1–5 (spec v1), the earlier mission-dashboard
+  redesign, ADR-001–012, and the live Render deploy with the Cloudflare rate-limit fix.
+- **Verified:** `npm test` (190 tests, 31 files) green; `npm run build` (tsc) clean;
+  server request ~52 ms for the London fixture; live API returns all new fields
+  (`starfield`, `constellationLines`, `moon`, `milkyway`).
 
 ## Next step
-- User has not yet connected the repo to Render (dashboard: New > Blueprint).
-- A `/retro` was started this session (Step 1a spec-vs-reality audit drafted, covering
-  Phases 1-5 only) then abandoned mid-question when the user pivoted to the dashboard
-  redesign ask. That draft now predates Phases 6-10 — if resuming, re-run fresh rather
-  than continuing the stale draft.
+- **VISUAL CONFIRMATION STILL NEEDED (the one gap):** the Chrome extension was not
+  connected and no headless browser/canvas lib is installed, so the actual pixel
+  rendering of both views was never eyeballed. Everything up to the draw calls is
+  tested (projection math, SVG overlay, toggle, selection, and the canvas draw path
+  via a recording-context stub), but nobody has *looked at it*. Open
+  http://localhost:3000 (dev server may still be running; else `npm run dev`) and
+  confirm both views look right, then tune magnitude→size/opacity, Milky Way opacity,
+  the Moon-phase glyph, and pan/zoom feel.
+- Not yet committed — the rework is all in the working tree.
 
 ## Open questions
-- None blocking.
+- None blocking. A few reversible defaults were chosen (circular view default,
+  azimuthal-equidistant projection, no starfield magnitude cap) — revisit if the
+  visual pass suggests otherwise.
 
 ## Landmines
-- `reports/` and `PHASE5-FIXES.md` are stale sibling-session artifacts, not project
-  deliverables — don't commit them without checking contents first.
-- Multiple concurrent Claude Code sessions sometimes run against this repo at once
-  (same git identity) — unexpected git/doc state may be a live sibling session.
-- jsdom test harness gotchas (no `requestAnimationFrame`, `document.hidden` defaults
-  `true`, `vi.useFakeTimers()` doesn't reach a manually-constructed `new JSDOM(...)`
-  window) — see `docs/learnings.md` "Mission-dashboard redesign" for the workarounds.
+- `data/constellation-lines.json` and `data/milkyway.json` are vendored d3-celestial
+  BSD-3 data — they MUST ship with the deploy (committed, unlike the gitignored HYG CSV).
+- Canvas doesn't render in jsdom (`getContext` → null); the canvas path is covered by
+  `test/skyviewCanvas.test.ts` via a recording-context + `Path2D` stub, not real pixels.
+- Cross-file client globals must be `var` or `function` (not `const`/`let`) — separate
+  `dom.window.eval()` calls in the jsdom harness don't share lexical scope
+  (`INFO_PLACEHOLDER` in `skyview.js` is `var` for exactly this reason).
+- `reports/` and `PHASE5-FIXES.md` are stale sibling-session artifacts — check before committing.
+- Multiple concurrent Claude Code sessions sometimes run against this repo at once.

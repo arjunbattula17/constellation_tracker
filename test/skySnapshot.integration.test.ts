@@ -33,6 +33,36 @@ describe("GET /api/sky-snapshot", () => {
     }
   });
 
+  it("includes the immersive-view fields: starfield, constellation figures, Moon, and Milky Way", async () => {
+    const app = createApp();
+    const res = await request(app).get("/api/sky-snapshot").query(VALID_QUERY);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.starfield)).toBe(true);
+    expect(res.body.starfield.length).toBeGreaterThan(res.body.stars.length);
+    for (const s of res.body.starfield.slice(0, 20)) {
+      expect(s.altitude).toBeGreaterThanOrEqual(0);
+      expect(typeof s.magnitude).toBe("number");
+    }
+
+    expect(Array.isArray(res.body.constellationLines)).toBe(true);
+    expect(res.body.constellationLines.length).toBeGreaterThan(0);
+    const orion = res.body.constellationLines.find((f: { id: string }) => f.id === "Ori");
+    expect(orion).toBeDefined();
+    expect(orion.name).toBe("Orion");
+    expect(orion.segments.length).toBeGreaterThan(0);
+
+    expect(Array.isArray(res.body.milkyway)).toBe(true);
+    expect(res.body.milkyway.length).toBeGreaterThan(0);
+
+    // Moon is either null (below horizon) or a fully-formed object.
+    expect(res.body).toHaveProperty("moon");
+    if (res.body.moon !== null) {
+      expect(res.body.moon.name).toBe("Moon");
+      expect(typeof res.body.moon.illumination).toBe("number");
+    }
+  });
+
   it("rejects an out-of-range latitude with 400", async () => {
     const app = createApp();
     const res = await request(app).get("/api/sky-snapshot").query({ ...VALID_QUERY, lat: "999" });

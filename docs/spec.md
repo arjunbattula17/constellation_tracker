@@ -9,6 +9,12 @@ Secondary differentiator: framing the output as a named "alignment" — the set 
 Public web product. v1 success bar is modest: a handful of people try it and find it fun/useful — not scale or retention. Timeline goal is a working v1 in days, not months, though two decisions below (full IAU-88 boundary math, full star catalog) add real implementation time against that goal — see Open Questions.
 
 ## MVP Scope
+> **Visual direction revised (2026-08-03):** the original "horizontal strip/mini chart"
+> output below was superseded by a full-immersive sky map — a circular all-sky view and a
+> pannable landscape horizon view (toggle), with real constellation figures, a full
+> starfield, the Moon, and a Milky Way band. See ADR-013–016 in `docs/decisions.md`. The
+> scope items below (what's computed and shown) still hold; only the presentation changed.
+
 - Place input: "Use my location" (browser Geolocation API) as the primary path, with a manual latitude/longitude fallback.
 - Time: **current time only**. No date/time picker in v1 (deferred — see Out of Scope).
 - On first page load, before the user does anything: render a demo sky for a fixed default location/time so the page is never empty.

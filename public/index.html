@@ -7,82 +7,49 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <header id="dashboard-header">
+  <div id="sky-view" class="sky-view" data-mode="circular" aria-label="Interactive sky map"></div>
+
+  <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+
+  <header id="app-header">
     <h1>Sky Snapshot</h1>
     <time id="live-clock"></time>
   </header>
 
-  <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+  <div id="view-toggle" class="view-toggle" role="group" aria-label="Sky view style">
+    <button type="button" data-mode="circular" class="active" aria-pressed="true">All-sky</button>
+    <button type="button" data-mode="landscape" aria-pressed="false">Horizon</button>
+  </div>
 
-  <main>
-    <p id="location-label">Loading demo sky for the default location&hellip;</p>
-
+  <div id="location-panel">
+    <p id="location-label">Loading the sky for the default location&hellip;</p>
     <div id="location-controls">
       <button id="use-location-btn" type="button">Use my location</button>
-
       <div id="manual-location" hidden>
         <p id="manual-location-message" role="alert"></p>
         <form id="manual-location-form" novalidate>
-          <label>
-            Latitude
+          <label>Latitude
             <input id="manual-lat" type="number" step="any" min="-90" max="90" required />
           </label>
-          <label>
-            Longitude
+          <label>Longitude
             <input id="manual-lon" type="number" step="any" min="-180" max="180" required />
           </label>
-          <button type="submit">Show sky snapshot</button>
+          <button type="submit">Show sky</button>
           <p id="manual-location-error" role="alert"></p>
         </form>
       </div>
     </div>
+  </div>
 
-    <section id="results" aria-live="polite">
-      <p id="status">Loading&hellip;</p>
-      <div id="lists" hidden>
-        <p id="last-updated" class="last-updated"></p>
+  <div id="info-overlay" class="info-overlay" aria-live="polite">
+    <p id="status" hidden>Loading&hellip;</p>
+    <p id="info-content"></p>
+  </div>
 
-        <div id="stat-strip">
-          <div class="stat-tile">
-            <span class="stat-value" id="stat-stars">0</span>
-            <span class="stat-label">Stars</span>
-          </div>
-          <div class="stat-tile">
-            <span class="stat-value" id="stat-planets">0</span>
-            <span class="stat-label">Planets</span>
-          </div>
-          <div class="stat-tile">
-            <span class="stat-value" id="stat-galaxies">0</span>
-            <span class="stat-label">Galaxies</span>
-          </div>
-          <div class="stat-tile">
-            <span class="stat-value" id="stat-constellations">0</span>
-            <span class="stat-label">Constellations</span>
-          </div>
-        </div>
-
-        <div class="panel" id="chart-panel">
-          <h2>Sky Chart</h2>
-          <div id="sky-chart"></div>
-        </div>
-
-        <div class="panel" id="focus-panel">
-          <h2>Focus</h2>
-          <p id="focus-panel-content">Select an object to see details</p>
-        </div>
-
-        <div class="panel" id="constellations-panel">
-          <h2>Constellations</h2>
-          <ul id="constellations-list"></ul>
-        </div>
-      </div>
-    </section>
-  </main>
-
+  <script src="/projection.js"></script>
   <script src="/chart.js"></script>
-  <script src="/stats.js"></script>
-  <script src="/timeFormat.js"></script>
   <script src="/validate.js"></script>
+  <script src="/skyview.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
